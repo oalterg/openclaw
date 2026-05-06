@@ -376,6 +376,30 @@ describe("buildConsentDeniedResult", () => {
 });
 
 describe("materializeBundleMcpToolsForRun (consent integration)", () => {
+  it("propagates agentId + sessionKey to the approval requester", async () => {
+    // Without this, the gateway forwarder has no session binding and the
+    // approval prompt silently auto-cancels — boundary becomes a permanent
+    // deny gate. Caught live on .58 deployment 2026-05-06.
+    const calls: Array<{ serverName: string; toolName: string; input: unknown }> = [];
+    const runtime = makeMockRuntime({
+      results: [consentEnvelopeResult("act-route", "do it"), plainOkResult("done")],
+      recordedCalls: calls,
+    });
+    let observedCtx: { agentId?: string; sessionKey?: string } = {};
+    const materialized = await materializeBundleMcpToolsForRun({
+      runtime,
+      agentId: "main",
+      sessionKey: "agent:main:whatsapp:direct:+4915203460687",
+      requestApproval: async ({ ctx }) => {
+        observedCtx = { agentId: ctx.agentId, sessionKey: ctx.sessionKey };
+        return "allow-once";
+      },
+    });
+    await materialized.tools[0].execute("call-x", {}, undefined, undefined);
+    expect(observedCtx.agentId).toBe("main");
+    expect(observedCtx.sessionKey).toBe("agent:main:whatsapp:direct:+4915203460687");
+  });
+
   it("threads requestApproval into the materialized tool's execute()", async () => {
     const calls: Array<{ serverName: string; toolName: string; input: unknown }> = [];
     const runtime = makeMockRuntime({

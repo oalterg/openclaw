@@ -189,6 +189,13 @@ export async function materializeBundleMcpToolsForRun(params: {
    *  to true. Even when true, only tools that *return* a consent envelope
    *  are gated; servers that don't speak the protocol are unchanged. */
   consentEnabled?: boolean;
+  /** Agent-side identity passed to plugin.approval.request so the gateway
+   *  forwarder can resolve the right delivery channel (WhatsApp, Telegram,
+   *  Slack, gateway dashboard, …) for the user who triggered the run.
+   *  Without these, the forwarder has no session binding and the prompt
+   *  silently auto-cancels — making the boundary a permanent deny gate. */
+  agentId?: string;
+  sessionKey?: string;
 }): Promise<BundleMcpToolRuntime> {
   let disposed = false;
   const releaseLease = params.runtime.acquireLease?.();
@@ -244,6 +251,8 @@ export async function materializeBundleMcpToolsForRun(params: {
           agentToolName: safeToolName,
           toolCallId,
           input,
+          agentId: params.agentId,
+          sessionKey: params.sessionKey,
           requestApproval: params.requestApproval,
           consentEnabled: params.consentEnabled,
         });
@@ -290,6 +299,8 @@ export async function createBundleMcpToolRuntime(params: {
   }) => SessionMcpRuntime;
   requestApproval?: RequestMcpConsentApproval;
   consentEnabled?: boolean;
+  agentId?: string;
+  sessionKey?: string;
 }): Promise<BundleMcpToolRuntime> {
   const createRuntime =
     params.createRuntime ?? (await import("./pi-bundle-mcp-runtime.js")).createSessionMcpRuntime;
@@ -311,6 +322,8 @@ export async function createBundleMcpToolRuntime(params: {
     },
     requestApproval: params.requestApproval,
     consentEnabled,
+    agentId: params.agentId,
+    sessionKey: params.sessionKey,
   });
   return materialized;
 }

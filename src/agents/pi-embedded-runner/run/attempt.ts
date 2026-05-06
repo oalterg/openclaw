@@ -1649,6 +1649,14 @@ export async function runEmbeddedAttempt(
             ...tools.map((tool) => tool.name),
             ...(clientTools?.map((tool) => tool.function.name) ?? []),
           ],
+          // Plumb session identity through so plugin.approval.request can
+          // resolve the correct delivery channel (WhatsApp, Telegram,
+          // gateway dashboard, …) for the user who triggered this run.
+          // Without these, the forwarder has no session binding and the
+          // approval prompt silently auto-cancels — the boundary becomes
+          // a permanent deny gate.
+          agentId: params.agentId,
+          sessionKey: params.sessionKey,
         })
       : undefined;
     const bundleLspEnabled = shouldCreateBundleLspRuntimeForAttempt({
