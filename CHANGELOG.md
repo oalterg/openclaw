@@ -6,6 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- MCP/approvals: gate bundle-MCP tool calls through the existing plugin-approval pipeline when an MCP server returns a standard consent envelope (`{ok: false, requires_confirmation: true, action_id, summary}`). The `action_id` is redacted from the model's view; the user replies `/approve <id> allow-once|allow-always|deny` on the trusted channel and OpenClaw re-calls the tool with `confirmation_token = action_id`. Servers that don't return the envelope are unaffected. Reuses the same channel-auth, ID-prefix routing, and reply parser already used for shell-exec approvals. Disable per-deployment with `mcp.approvals.enabled: false`. Thanks @oalterg.
 - Gateway/plugins: reuse a compatible Gateway startup plugin registry during dispatch so safe plugin dispatches avoid redundant registry loading. (#84324) Thanks @ai-hpc.
 - Dependencies: refresh provider, plugin, UI, and tooling packages, update `protobufjs` to 8.4.0 to clear the current npm advisory, and carry the Claude ACP completion patch forward to `@agentclientprotocol/claude-agent-acp` 0.36.1.
 - Tests/perf: isolate doctor core health check unit coverage from real skills/workspace discovery so `doctor-core-checks` no longer dominates unit perf while keeping one real skills-readiness smoke. (#84493) Thanks @frankekn.
