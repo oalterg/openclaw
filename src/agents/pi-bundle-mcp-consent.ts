@@ -156,11 +156,13 @@ export const defaultRequestMcpConsentApproval: RequestMcpConsentApproval = async
   if (!id) {
     return "deny";
   }
-  if (
-    Object.prototype.hasOwnProperty.call(requestResult ?? {}, "decision") &&
-    requestResult?.decision !== undefined
-  ) {
-    return normalizeDecision(requestResult.decision);
+  // The gateway returns `decision: null` in two-phase mode to mean
+  // "request accepted, keep waiting via waitDecision". Only treat a
+  // non-null, non-undefined decision as an immediate result. Both null
+  // and undefined fall through to waitDecision.
+  const immediate = requestResult?.decision;
+  if (immediate !== undefined && immediate !== null) {
+    return normalizeDecision(immediate);
   }
   let waitResult: { id?: string; decision?: string | null } | undefined;
   try {
