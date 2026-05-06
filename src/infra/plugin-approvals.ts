@@ -90,10 +90,15 @@ export function buildPluginApprovalRequestMessage(
   lines.push(`ID: ${request.id}`);
   const expiresIn = Math.max(0, Math.round((request.expiresAtMs - nowMsValue) / 1000));
   lines.push(`Expires in: ${expiresIn}s`);
+  // The reply parser also accepts a bare `/approve <decision>` (no id)
+  // when there is exactly one pending approval — better UX on phones than
+  // pasting a uuid. The id above is for the unambiguous form when multiple
+  // approvals are queued. Decisions list is dynamic per upstream support
+  // for `request.allowedDecisions` (defaults to all three).
   lines.push(
-    `Reply with: /approve <id> ${resolvePluginApprovalRequestAllowedDecisions(request.request).join(
-      "|",
-    )}`,
+    `Reply with: ${resolvePluginApprovalRequestAllowedDecisions(request.request)
+      .map((d) => `/approve ${d}`)
+      .join("   |   ")}`,
   );
   return lines.join("\n");
 }

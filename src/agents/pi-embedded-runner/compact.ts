@@ -777,7 +777,7 @@ async function compactEmbeddedPiSessionDirectOnce(
           // Plumb session identity through so plugin.approval.request can
           // resolve the right delivery channel for any compaction-time
           // tool call that returns a consent envelope.
-          agentId: params.sessionAgentId,
+          agentId: effectiveSkillAgentId,
           sessionKey: params.sessionKey,
         })
       : undefined;

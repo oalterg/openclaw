@@ -35,6 +35,13 @@ type ParsedApproveCommand =
 const APPROVE_USAGE_TEXT =
   "Usage: /approve <id> <decision> (see the pending approval message for available decisions)";
 
+/** Sentinel id used when the user typed a bare `/approve <decision>` with
+ *  no explicit id. The handler resolves it by listing pending approvals
+ *  and binding to the only outstanding one (else returns ambiguous/none).
+ *  Caught live during PR #78303 testing — typing a full uuid by hand on a
+ *  phone is unrealistic UX. */
+export const IMPLICIT_APPROVAL_ID = "__implicit__";
+
 function parseApproveCommand(raw: string): ParsedApproveCommand | null {
   const trimmed = raw.trim();
   if (FOREIGN_COMMAND_MENTION_REGEX.test(trimmed)) {
@@ -49,7 +56,15 @@ function parseApproveCommand(raw: string): ParsedApproveCommand | null {
     return { ok: false, error: APPROVE_USAGE_TEXT };
   }
   const tokens = rest.split(/\s+/).filter(Boolean);
-  if (tokens.length < 2) {
+
+  if (tokens.length === 1) {
+    // Bare `/approve <decision>` — resolve against the single most recent
+    // pending approval at handler time. Better UX than forcing the user to
+    // copy a uuid by hand.
+    const only = normalizeLowercaseStringOrEmpty(tokens[0]);
+    if (DECISION_ALIASES[only]) {
+      return { ok: true, decision: DECISION_ALIASES[only], id: IMPLICIT_APPROVAL_ID };
+    }
     return { ok: false, error: APPROVE_USAGE_TEXT };
   }
 
@@ -133,6 +148,57 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
   }
   if (!parsed.ok) {
     return { shouldContinue: false, reply: { text: parsed.error } };
+  }
+
+  // If the user typed `/approve <decision>` without an id, resolve to the
+  // single most-recent pending approval. Better UX than forcing a
+  // copy-paste of a uuid; refuses on ambiguity (multiple pending).
+  if (parsed.id === IMPLICIT_APPROVAL_ID) {
+    let pendingPlugin: Array<{ id: string }> = [];
+    try {
+      const r = await callGateway<Array<{ id: string }>>({
+        method: "plugin.approval.list",
+        params: {},
+        clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
+        clientDisplayName: "Chat approval",
+        mode: GATEWAY_CLIENT_MODES.BACKEND,
+      });
+      pendingPlugin = Array.isArray(r) ? r : [];
+    } catch {
+      pendingPlugin = [];
+    }
+    let pendingExec: Array<{ id: string }> = [];
+    try {
+      const r = await callGateway<Array<{ id: string }>>({
+        method: "exec.approval.list",
+        params: {},
+        clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
+        clientDisplayName: "Chat approval",
+        mode: GATEWAY_CLIENT_MODES.BACKEND,
+      });
+      pendingExec = Array.isArray(r) ? r : [];
+    } catch {
+      pendingExec = [];
+    }
+    const candidates = [...pendingPlugin, ...pendingExec].filter((r) => !!r?.id);
+    if (candidates.length === 0) {
+      return {
+        shouldContinue: false,
+        reply: { text: "❌ No pending approval to act on." },
+      };
+    }
+    if (candidates.length > 1) {
+      return {
+        shouldContinue: false,
+        reply: {
+          text:
+            `❌ Ambiguous /approve — ${candidates.length} pending approvals. ` +
+            `Reply with the explicit id from the prompt: ` +
+            `/approve ${candidates[0].id} ${parsed.decision}`,
+        },
+      };
+    }
+    parsed.id = candidates[0].id;
   }
 
   const isPluginId = parsed.id.startsWith("plugin:");
