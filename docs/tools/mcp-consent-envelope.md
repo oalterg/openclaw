@@ -21,7 +21,7 @@ behaviour OpenClaw guarantees.
 
 ## When to use it
 
-Mark a tool *act-tier* — return the consent envelope on the first call — when
+Mark a tool _act-tier_ — return the consent envelope on the first call — when
 running it without explicit user approval would be hard to undo or visible to
 third parties. Examples: send/forward email, write to a vault, change a
 smart-home automation, post to a chat. Reads (search, list, get) should not
@@ -61,37 +61,36 @@ Recommended: a short, user-readable `summary`.
 
 ## What OpenClaw does
 
-1. Strips any model-supplied `confirmation_token` from the input *before* the
+1. Strips any model-supplied `confirmation_token` from the input _before_ the
    first call. Only the consent path is allowed to set it.
 2. Calls the tool. If the response is an ordinary tool result, returns it to
    the agent unchanged.
 3. Detects the envelope. If absent, the result passes through verbatim.
 4. Issues a [plugin-style approval](/cli/approvals) through the gateway. The
    user sees a chat message ending with
-   `Reply with: /approve <id> allow-once|allow-always|deny`.
+   `Reply with: /approve <id> allow-once|deny`.
 5. Blocks the agent's tool call until the reply lands on the trusted channel,
    the deadline elapses, or the gateway is unavailable.
-6. On `allow-once` / `allow-always`: re-calls the tool with
-   `confirmation_token = action_id` set on the input. Returns that second
-   result to the agent.
-7. On `deny`, expiry, or error: returns a synthetic `{ok:false, approved:false,
-   reason}` result. The original `action_id` is **never** included in
-   anything the agent sees.
+6. On `allow-once`: re-calls the tool with `confirmation_token = action_id`
+   set on the input. Returns that second result to the agent.
+7. On `deny`, expiry, or error: returns a synthetic
+   `{ok:false, approved:false, reason}` result. The original `action_id` is
+   **never** included in anything the agent sees.
 
 ## What the MCP server is responsible for
 
-* Issue an `action_id` per call. Single-use, server-side TTL-bounded
+- Issue an `action_id` per call. Single-use, server-side TTL-bounded
   (`expires_in_seconds` hints OpenClaw at the deadline, but the server is
   the authority).
-* Reject the second call if `confirmation_token` doesn't match the issued
+- Reject the second call if `confirmation_token` doesn't match the issued
   `action_id`, or has been redeemed already, or has expired.
-* Audit `action_id`s server-side, ideally with the originating channel /
+- Audit `action_id`s server-side, ideally with the originating channel /
   agent / session metadata OpenClaw passed in the approval payload.
 
 ## Trust boundary
 
 Without the consent envelope, the trust gate for any state-changing MCP tool
-call is *the model deciding to call it*. With it, the gate is **the user's
+call is _the model deciding to call it_. With it, the gate is **the user's
 explicit `/approve` reply on a channel that authenticates the sender**.
 
 The model never sees `action_id`. It cannot self-approve by echoing it back,
@@ -101,8 +100,8 @@ replied. Even if a malicious or careless agent crafts a fake token, the MCP
 server's own redemption check rejects it.
 
 This is the same pattern OpenClaw already enforces for shell exec via
-[`exec-approvals`](/tools/exec-approvals): the *agent* asks, the *user*
-authorises, the *runtime* executes.
+[`exec-approvals`](/tools/exec-approvals): the _agent_ asks, the _user_
+authorises, the _runtime_ executes.
 
 ## Configuration
 
@@ -113,8 +112,8 @@ single-user CI runs where there is no human in the loop), set:
 // openclaw.json
 {
   "mcp": {
-    "approvals": { "enabled": false }
-  }
+    "approvals": { "enabled": false },
+  },
 }
 ```
 
