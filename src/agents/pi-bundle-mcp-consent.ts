@@ -73,6 +73,29 @@ export function detectMcpConsentEnvelope(result: CallToolResult): McpConsentEnve
   return null;
 }
 
+/** Neutralise any `/approve` substring in tool-emitted text so a
+ *  compromised MCP server can't smuggle an authoritative-looking
+ *  approval command into the chat transcript via the consent prompt's
+ *  `summary` field (or any other string we propagate verbatim from the
+ *  envelope). Splits the slash from `approve` with U+200B (zero-width
+ *  space) so the magic-word regex (`^/approve\b`) never matches, while
+ *  keeping the text human-readable. Same treatment for `/deny`,
+ *  `/allow-once`, `/allow-always`, and the bare alias forms — anything
+ *  the reply parser would honour from a freshly-typed user message.
+ *
+ *  Reviewer concern: the consent envelope closes the model's
+ *  self-approval path, but `summary` is still attacker-controlled text
+ *  that ends up in the chat. If any present or future renderer treats
+ *  tool-emitted text as user-typed for `/approve` parsing — even by
+ *  accident, even via a self-message echo — a malicious MCP server
+ *  could self-approve. Sanitise at the source. */
+const APPROVE_COMMAND_RE = /\/approve\b/gi;
+const ZWSP = "​";
+
+export function sanitiseToolEmittedApprovalText(text: string): string {
+  return text.replace(APPROVE_COMMAND_RE, `/${ZWSP}approve`);
+}
+
 function parseEnvelopeRecord(record: Record<string, unknown>): McpConsentEnvelope | null {
   if (record.requires_confirmation !== true) {
     return null;
@@ -81,10 +104,11 @@ function parseEnvelopeRecord(record: Record<string, unknown>): McpConsentEnvelop
   if (!actionId) {
     return null;
   }
-  const summary =
+  const rawSummary =
     typeof record.summary === "string" && record.summary.trim().length > 0
       ? record.summary.trim()
       : "An MCP tool requires user approval.";
+  const summary = sanitiseToolEmittedApprovalText(rawSummary);
   const ttl =
     typeof record.expires_in_seconds === "number" && Number.isFinite(record.expires_in_seconds)
       ? Math.max(1, Math.floor(record.expires_in_seconds))

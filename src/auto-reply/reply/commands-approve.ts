@@ -137,6 +137,20 @@ function resolveApprovalAuthorizationError(params: {
   );
 }
 
+/**
+ * Trust property (defence in depth, see PR #78303 review thread):
+ * `/approve` commands are only honoured when they come through this
+ * handler from the auto-reply command dispatcher, which is invoked
+ * exclusively on inbound channel messages with a `senderId` that
+ * matches the channel's allowlist (`isAuthorizedSender`). Tool-emitted
+ * text and model output never reach this path because they have no
+ * verified `senderId`. Bundle-MCP consent envelopes additionally
+ * neutralise any `/approve` substring inside tool output before it
+ * is rendered into chat — see `sanitiseToolEmittedApprovalText` in
+ * `pi-bundle-mcp-consent.ts`. Combined, those two layers prevent a
+ * compromised MCP server from self-approving by poisoning the
+ * transcript or echoing approval commands through the bot.
+ */
 export const handleApproveCommand: CommandHandler = async (params, allowTextCommands) => {
   if (!allowTextCommands) {
     return null;
