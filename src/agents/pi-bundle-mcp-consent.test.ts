@@ -427,7 +427,7 @@ describe("materializeBundleMcpToolsForRun (consent integration)", () => {
     const materialized = await materializeBundleMcpToolsForRun({
       runtime,
       agentId: "main",
-      sessionKey: "agent:main:whatsapp:direct:+4915203460687",
+      sessionKey: "agent:main:whatsapp:direct:+10000000000",
       requestApproval: async ({ ctx }) => {
         observedCtx = { agentId: ctx.agentId, sessionKey: ctx.sessionKey };
         return "allow-once";
@@ -435,7 +435,7 @@ describe("materializeBundleMcpToolsForRun (consent integration)", () => {
     });
     await materialized.tools[0].execute("call-x", {}, undefined, undefined);
     expect(observedCtx.agentId).toBe("main");
-    expect(observedCtx.sessionKey).toBe("agent:main:whatsapp:direct:+4915203460687");
+    expect(observedCtx.sessionKey).toBe("agent:main:whatsapp:direct:+10000000000");
   });
 
   it("threads requestApproval into the materialized tool's execute()", async () => {

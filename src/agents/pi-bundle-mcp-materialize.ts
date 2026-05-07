@@ -99,21 +99,18 @@ export async function callMcpToolWithConsent(params: {
   input: unknown;
   requestApproval?: RequestMcpConsentApproval;
   consentEnabled?: boolean;
+  signal?: AbortSignal;
 }): Promise<CallToolResult> {
+  if (params.consentEnabled === false) {
+    return params.runtime.callTool(params.serverName, params.toolName, params.input);
+  }
   const { cleaned, stripped } = scrubModelSuppliedConfirmationToken(params.input);
   if (stripped) {
     logWarn(
       `bundle-mcp consent: stripped model-supplied confirmation_token from ${params.serverName}.${params.toolName}`,
     );
   }
-  const firstResult = await params.runtime.callTool(
-    params.serverName,
-    params.toolName,
-    cleaned,
-  );
-  if (params.consentEnabled === false) {
-    return firstResult;
-  }
+  const firstResult = await params.runtime.callTool(params.serverName, params.toolName, cleaned);
   const envelope = detectMcpConsentEnvelope(firstResult);
   if (!envelope) {
     return firstResult;
@@ -131,6 +128,7 @@ export async function callMcpToolWithConsent(params: {
         agentId: params.agentId,
         sessionKey: params.sessionKey,
       },
+      signal: params.signal,
     });
   } catch (err) {
     logWarn(`bundle-mcp consent: approval request threw: ${String(err)}`);
@@ -242,7 +240,7 @@ export async function materializeBundleMcpToolsForRun(params: {
       label: tool.title ?? tool.toolName,
       description: tool.description || tool.fallbackDescription,
       parameters: normalizeToolParameterSchema(tool.inputSchema),
-      execute: async (toolCallId: string, input: unknown) => {
+      execute: async (toolCallId: string, input: unknown, signal?: AbortSignal) => {
         params.runtime.markUsed();
         const result = await callMcpToolWithConsent({
           runtime: params.runtime,
@@ -255,6 +253,7 @@ export async function materializeBundleMcpToolsForRun(params: {
           sessionKey: params.sessionKey,
           requestApproval: params.requestApproval,
           consentEnabled: params.consentEnabled,
+          signal,
         });
         return toAgentToolResult({
           serverName: tool.serverName,

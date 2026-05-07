@@ -139,6 +139,7 @@ export type McpConsentApprovalContext = {
 export type RequestMcpConsentApproval = (params: {
   envelope: McpConsentEnvelope;
   ctx: McpConsentApprovalContext;
+  signal?: AbortSignal;
 }) => Promise<McpConsentDecision>;
 
 /** Default approval requester — talks to the local gateway via
@@ -148,11 +149,15 @@ export type RequestMcpConsentApproval = (params: {
 export const defaultRequestMcpConsentApproval: RequestMcpConsentApproval = async ({
   envelope,
   ctx,
+  signal,
 }) => {
   const timeoutMs = envelope.expiresInSeconds
     ? Math.min(envelope.expiresInSeconds * 1000, 600_000)
     : 120_000;
-  const description = `${ctx.serverName}.${ctx.toolName} — ${envelope.summary}`;
+  const safeToolName = sanitiseToolEmittedApprovalText(ctx.toolName);
+  const rawDescription = `${ctx.serverName}.${safeToolName} — ${envelope.summary}`;
+  const description =
+    rawDescription.length > 256 ? rawDescription.slice(0, 253) + "…" : rawDescription;
   let requestResult: { id?: string; decision?: string | null } | undefined;
   try {
     requestResult = await callGatewayTool<{ id?: string; decision?: string | null }>(
@@ -167,6 +172,7 @@ export const defaultRequestMcpConsentApproval: RequestMcpConsentApproval = async
         toolCallId: ctx.toolCallId,
         agentId: ctx.agentId,
         sessionKey: ctx.sessionKey,
+        allowedDecisions: ["allow-once", "deny"],
         timeoutMs,
         twoPhase: true,
       },
@@ -188,13 +194,33 @@ export const defaultRequestMcpConsentApproval: RequestMcpConsentApproval = async
   if (immediate !== undefined && immediate !== null) {
     return normalizeDecision(immediate);
   }
+  const waitPromise = callGatewayTool<{ id?: string; decision?: string | null }>(
+    "plugin.approval.waitDecision",
+    { timeoutMs: timeoutMs + 10_000 },
+    { id },
+  );
   let waitResult: { id?: string; decision?: string | null } | undefined;
   try {
-    waitResult = await callGatewayTool<{ id?: string; decision?: string | null }>(
-      "plugin.approval.waitDecision",
-      { timeoutMs: timeoutMs + 10_000 },
-      { id },
-    );
+    if (signal) {
+      let onAbort: (() => void) | undefined;
+      const abortPromise = new Promise<never>((_, reject) => {
+        if (signal.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
+      try {
+        waitResult = await Promise.race([waitPromise, abortPromise]);
+      } finally {
+        if (onAbort) {
+          signal.removeEventListener("abort", onAbort);
+        }
+      }
+    } else {
+      waitResult = await waitPromise;
+    }
   } catch (err) {
     logWarn(`bundle-mcp consent: gateway waitDecision failed: ${String(err)}`);
     return "deny";
