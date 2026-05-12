@@ -81,7 +81,9 @@ Recommended: a short, user-readable `summary`.
 
 - Issue an `action_id` per call. Single-use, server-side TTL-bounded
   (`expires_in_seconds` hints OpenClaw at the deadline, but the server is
-  the authority).
+  the authority). When omitted, OpenClaw uses a 5-minute default that
+  matches the realistic notification → unlock → context → reply latency on
+  mobile reply channels (WhatsApp/Telegram/SMS). Hard ceiling: 10 min.
 - Reject the second call if `confirmation_token` doesn't match the issued
   `action_id`, or has been redeemed already, or has expired.
 - Audit `action_id`s server-side, ideally with the originating channel /

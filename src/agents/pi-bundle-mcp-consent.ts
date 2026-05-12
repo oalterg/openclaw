@@ -151,9 +151,12 @@ export const defaultRequestMcpConsentApproval: RequestMcpConsentApproval = async
   ctx,
   signal,
 }) => {
+  // Default fallback is 5 min — calibrated for mobile reply channels
+  // (WhatsApp/Telegram/SMS) where notification → unlock → context → tap is
+  // realistically 60–180s. 2 min was too tight; 10 min is the hard cap.
   const timeoutMs = envelope.expiresInSeconds
     ? Math.min(envelope.expiresInSeconds * 1000, 600_000)
-    : 120_000;
+    : 300_000;
   const safeToolName = sanitiseToolEmittedApprovalText(ctx.toolName);
   const rawDescription = `${ctx.serverName}.${safeToolName} — ${envelope.summary}`;
   const description =
