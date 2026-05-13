@@ -28,19 +28,21 @@ const DECISION_ALIASES: Record<string, "allow-once" | "allow-always" | "deny"> =
   block: "deny",
 };
 
+type ApproveDecision = "allow-once" | "allow-always" | "deny";
+
+/** Result of parsing `/approve …`. The id field is a discriminated union:
+ *  `implicit` when the user typed a bare `/approve <decision>` (handler
+ *  resolves against the single outstanding pending approval — typing a
+ *  full uuid by hand on a phone is unrealistic UX), or `explicit` with
+ *  the literal id from the message. Modeled this way to avoid a sentinel
+ *  string colliding with a real approval id. */
 type ParsedApproveCommand =
-  | { ok: true; id: string; decision: "allow-once" | "allow-always" | "deny" }
+  | { ok: true; idKind: "explicit"; id: string; decision: ApproveDecision }
+  | { ok: true; idKind: "implicit"; decision: ApproveDecision }
   | { ok: false; error: string };
 
 const APPROVE_USAGE_TEXT =
   "Usage: /approve <id> <decision> (see the pending approval message for available decisions)";
-
-/** Sentinel id used when the user typed a bare `/approve <decision>` with
- *  no explicit id. The handler resolves it by listing pending approvals
- *  and binding to the only outstanding one (else returns ambiguous/none).
- *  Caught live during PR #78303 testing — typing a full uuid by hand on a
- *  phone is unrealistic UX. */
-export const IMPLICIT_APPROVAL_ID = "__implicit__";
 
 function parseApproveCommand(raw: string): ParsedApproveCommand | null {
   const trimmed = raw.trim();
@@ -63,7 +65,7 @@ function parseApproveCommand(raw: string): ParsedApproveCommand | null {
     // copy a uuid by hand.
     const only = normalizeLowercaseStringOrEmpty(tokens[0]);
     if (DECISION_ALIASES[only]) {
-      return { ok: true, decision: DECISION_ALIASES[only], id: IMPLICIT_APPROVAL_ID };
+      return { ok: true, idKind: "implicit", decision: DECISION_ALIASES[only] };
     }
     return { ok: false, error: APPROVE_USAGE_TEXT };
   }
@@ -74,6 +76,7 @@ function parseApproveCommand(raw: string): ParsedApproveCommand | null {
   if (DECISION_ALIASES[first]) {
     return {
       ok: true,
+      idKind: "explicit",
       decision: DECISION_ALIASES[first],
       id: tokens.slice(1).join(" ").trim(),
     };
@@ -81,6 +84,7 @@ function parseApproveCommand(raw: string): ParsedApproveCommand | null {
   if (DECISION_ALIASES[second]) {
     return {
       ok: true,
+      idKind: "explicit",
       decision: DECISION_ALIASES[second],
       id: tokens[0],
     };
@@ -208,7 +212,8 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
   // single most-recent pending approval. Better UX than forcing a
   // copy-paste of a uuid; refuses on ambiguity (multiple pending).
   // Authorization has already been verified above before querying the list.
-  if (parsed.id === IMPLICIT_APPROVAL_ID) {
+  let approvalId: string;
+  if (parsed.idKind === "implicit") {
     let pendingPlugin: Array<{ id: string }> = [];
     try {
       const r = await callGateway<Array<{ id: string }>>({
@@ -252,10 +257,12 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
         },
       };
     }
-    parsed.id = candidates[0].id;
+    approvalId = candidates[0].id;
+  } else {
+    approvalId = parsed.id;
   }
 
-  const isPluginId = parsed.id.startsWith("plugin:");
+  const isPluginId = approvalId.startsWith("plugin:");
   const approvalCapability = resolveChannelApprovalCapability(
     getChannelPlugin(params.command.channel),
   );
@@ -276,7 +283,7 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
   const callApprovalMethod = async (method: ApprovalMethod): Promise<void> => {
     await resolveApprovalOverGateway({
       cfg: params.cfg,
-      approvalId: parsed.id,
+      approvalId,
       decision: parsed.decision,
       senderId: params.command.senderId,
       ...(method === "plugin.approval.resolve" ? { resolveMethod: "plugin" as const } : {}),
@@ -285,7 +292,7 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
   };
 
   const methods = resolveApprovalMethods({
-    approvalId: parsed.id,
+    approvalId,
     execAuthorization: execApprovalAuthorization,
     pluginAuthorization: pluginApprovalAuthorization,
   });
@@ -294,7 +301,7 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
       shouldContinue: false,
       reply: {
         text: resolveApprovalAuthorizationError({
-          approvalId: parsed.id,
+          approvalId,
           execAuthorization: execApprovalAuthorization,
           pluginAuthorization: pluginApprovalAuthorization,
         }),
@@ -319,6 +326,6 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
 
   return {
     shouldContinue: false,
-    reply: { text: `✅ Approval ${parsed.decision} submitted for ${parsed.id}.` },
+    reply: { text: `✅ Approval ${parsed.decision} submitted for ${approvalId}.` },
   };
 };
