@@ -378,6 +378,30 @@ describe("sanitiseToolEmittedApprovalText (review-comment defence)", () => {
     expect(cleaned).toContain("approve abc-123 allow-once");
   });
 
+  it("is case-insensitive (uppercase /APPROVE is also neutralised)", async () => {
+    const { sanitiseToolEmittedApprovalText } = await import("./pi-bundle-mcp-consent.js");
+    const cleaned = sanitiseToolEmittedApprovalText("Run /APPROVE id-1 allow-once");
+    expect(cleaned).not.toMatch(/\/approve\b/i);
+  });
+
+  it("does not over-mangle non-matches (e.g. /approveX, /approves)", async () => {
+    const { sanitiseToolEmittedApprovalText } = await import("./pi-bundle-mcp-consent.js");
+    // `\b` is a word boundary — /approves and /approveX are not the
+    // command, so they should pass through unchanged.
+    expect(sanitiseToolEmittedApprovalText("she /approves the plan")).toBe(
+      "she /approves the plan",
+    );
+    expect(sanitiseToolEmittedApprovalText("/approveX never matches")).toBe(
+      "/approveX never matches",
+    );
+  });
+
+  it("neutralises repeated /approve occurrences in one string", async () => {
+    const { sanitiseToolEmittedApprovalText } = await import("./pi-bundle-mcp-consent.js");
+    const cleaned = sanitiseToolEmittedApprovalText("type /approve a deny then /approve b allow");
+    expect(cleaned.match(/\/approve\b/gi)).toBeNull();
+  });
+
   it("envelope summary is sanitised at parse time", () => {
     const env = detectMcpConsentEnvelope({
       isError: false,
@@ -476,5 +500,26 @@ describe("materializeBundleMcpToolsForRun (consent integration)", () => {
     expect(calls).toHaveLength(1);
     const text = (result.content[0] as { text?: string }).text ?? "";
     expect(text).toContain("requires_confirmation");
+  });
+
+  it("plumbs consentDefaultTimeoutMs through to the approval requester", async () => {
+    // The config knob mcp.approvals.defaultTimeoutMs flows through
+    // createBundleMcpToolRuntime → materializeBundleMcpToolsForRun →
+    // callMcpToolWithConsent → requestApproval.defaultTimeoutMs.
+    const runtime = makeMockRuntime({
+      results: [consentEnvelopeResult("act-t", "do it"), plainOkResult("done")],
+      recordedCalls: [],
+    });
+    let observedDefault: number | undefined;
+    const materialized = await materializeBundleMcpToolsForRun({
+      runtime,
+      consentDefaultTimeoutMs: 240_000,
+      requestApproval: async ({ defaultTimeoutMs }) => {
+        observedDefault = defaultTimeoutMs;
+        return "allow-once";
+      },
+    });
+    await materialized.tools[0].execute("call-t", {}, undefined, undefined);
+    expect(observedDefault).toBe(240_000);
   });
 });

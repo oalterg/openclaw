@@ -78,17 +78,25 @@ export function detectMcpConsentEnvelope(result: CallToolResult): McpConsentEnve
  *  approval command into the chat transcript via the consent prompt's
  *  `summary` field (or any other string we propagate verbatim from the
  *  envelope). Splits the slash from `approve` with U+200B (zero-width
- *  space) so the magic-word regex (`^/approve\b`) never matches, while
- *  keeping the text human-readable. Same treatment for `/deny`,
- *  `/allow-once`, `/allow-always`, and the bare alias forms — anything
- *  the reply parser would honour from a freshly-typed user message.
+ *  space) so the parser regex (`^/?approve\b`) never matches, while
+ *  keeping the text human-readable.
  *
- *  Reviewer concern: the consent envelope closes the model's
- *  self-approval path, but `summary` is still attacker-controlled text
- *  that ends up in the chat. If any present or future renderer treats
- *  tool-emitted text as user-typed for `/approve` parsing — even by
- *  accident, even via a self-message echo — a malicious MCP server
- *  could self-approve. Sanitise at the source. */
+ *  Scope: only `/approve` is a parser entry point — `allow-once`,
+ *  `allow-always`, `deny` are arguments *to* `/approve` and aren't
+ *  separately matchable. Sanitising the verb is sufficient.
+ *
+ *  This is defence-in-depth, not the primary defence. The primary
+ *  defence is that `action_id` is never sent to the model and
+ *  `confirmation_token` is scrubbed from model-supplied input, so the
+ *  model cannot self-approve even if it could emit `/approve`-shaped
+ *  text. ZWSP-splitting closes a hypothetical regression where a future
+ *  renderer (re-)parses approval commands from tool-emitted strings,
+ *  e.g. a self-message echo or a transcript-replay feature.
+ *
+ *  Normalisation: U+200B is stable under NFC (the form chat layers
+ *  use). It IS decomposed under NFKC; if a downstream renderer applies
+ *  NFKC the protection vanishes — track if that ever changes. The
+ *  defence here is layer-appropriate, not a security boundary. */
 const APPROVE_COMMAND_RE = /\/approve\b/gi;
 const ZWSP = "​";
 
@@ -139,8 +147,23 @@ export type McpConsentApprovalContext = {
 export type RequestMcpConsentApproval = (params: {
   envelope: McpConsentEnvelope;
   ctx: McpConsentApprovalContext;
+  /** Fallback timeout when the envelope omits `expires_in_seconds`.
+   *  Capped at MAX_CONSENT_TIMEOUT_MS regardless. Optional —
+   *  DEFAULT_CONSENT_TIMEOUT_MS applies when omitted. */
+  defaultTimeoutMs?: number;
   signal?: AbortSignal;
 }) => Promise<McpConsentDecision>;
+
+/** Fallback wait window when the MCP envelope omits a TTL. Calibrated
+ *  for mobile reply channels (WhatsApp/Telegram/SMS) where notification
+ *  → unlock → context → tap is realistically 60–180s. 2 min is too
+ *  tight; 10 min is the hard cap (see MAX). Override per-deployment via
+ *  `mcp.approvals.defaultTimeoutMs`. */
+export const DEFAULT_CONSENT_TIMEOUT_MS = 300_000;
+/** Hard cap on the wait window — applies to both the default fallback
+ *  and any envelope-supplied `expires_in_seconds`. Anything longer is
+ *  a UX failure (the user has long since abandoned the prompt). */
+export const MAX_CONSENT_TIMEOUT_MS = 600_000;
 
 /** Default approval requester — talks to the local gateway via
  *  `plugin.approval.request` + `plugin.approval.waitDecision`. Reuses the
@@ -149,14 +172,19 @@ export type RequestMcpConsentApproval = (params: {
 export const defaultRequestMcpConsentApproval: RequestMcpConsentApproval = async ({
   envelope,
   ctx,
+  defaultTimeoutMs,
   signal,
 }) => {
-  // Default fallback is 5 min — calibrated for mobile reply channels
-  // (WhatsApp/Telegram/SMS) where notification → unlock → context → tap is
-  // realistically 60–180s. 2 min was too tight; 10 min is the hard cap.
+  // Fallback when the envelope omits TTL: caller-provided (from config)
+  // or the package default. Envelope-supplied TTLs and the fallback are
+  // both clamped to MAX_CONSENT_TIMEOUT_MS — see constant docs above.
+  const fallbackMs = Math.min(
+    Math.max(defaultTimeoutMs ?? DEFAULT_CONSENT_TIMEOUT_MS, 1000),
+    MAX_CONSENT_TIMEOUT_MS,
+  );
   const timeoutMs = envelope.expiresInSeconds
-    ? Math.min(envelope.expiresInSeconds * 1000, 600_000)
-    : 300_000;
+    ? Math.min(envelope.expiresInSeconds * 1000, MAX_CONSENT_TIMEOUT_MS)
+    : fallbackMs;
   const safeToolName = sanitiseToolEmittedApprovalText(ctx.toolName);
   const rawDescription = `${ctx.serverName}.${safeToolName} — ${envelope.summary}`;
   const description =
