@@ -379,6 +379,7 @@ const McpConfigSchema = z
     approvals: z
       .object({
         enabled: z.boolean().optional(),
+        defaultTimeoutMs: z.number().finite().int().min(1000).max(600_000).optional(),
       })
       .strict()
       .optional(),

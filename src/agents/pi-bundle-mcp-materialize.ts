@@ -99,6 +99,7 @@ export async function callMcpToolWithConsent(params: {
   input: unknown;
   requestApproval?: RequestMcpConsentApproval;
   consentEnabled?: boolean;
+  consentDefaultTimeoutMs?: number;
   signal?: AbortSignal;
 }): Promise<CallToolResult> {
   if (params.consentEnabled === false) {
@@ -128,6 +129,7 @@ export async function callMcpToolWithConsent(params: {
         agentId: params.agentId,
         sessionKey: params.sessionKey,
       },
+      defaultTimeoutMs: params.consentDefaultTimeoutMs,
       signal: params.signal,
     });
   } catch (err) {
@@ -187,6 +189,10 @@ export async function materializeBundleMcpToolsForRun(params: {
    *  to true. Even when true, only tools that *return* a consent envelope
    *  are gated; servers that don't speak the protocol are unchanged. */
   consentEnabled?: boolean;
+  /** Fallback timeout (ms) when the MCP consent envelope omits its own
+   *  TTL. Resolved from `mcp.approvals.defaultTimeoutMs` in the caller;
+   *  capped at MAX_CONSENT_TIMEOUT_MS. */
+  consentDefaultTimeoutMs?: number;
   /** Agent-side identity passed to plugin.approval.request so the gateway
    *  forwarder can resolve the right delivery channel (WhatsApp, Telegram,
    *  Slack, gateway dashboard, …) for the user who triggered the run.
@@ -253,6 +259,7 @@ export async function materializeBundleMcpToolsForRun(params: {
           sessionKey: params.sessionKey,
           requestApproval: params.requestApproval,
           consentEnabled: params.consentEnabled,
+          consentDefaultTimeoutMs: params.consentDefaultTimeoutMs,
           signal,
         });
         return toAgentToolResult({
@@ -298,6 +305,7 @@ export async function createBundleMcpToolRuntime(params: {
   }) => SessionMcpRuntime;
   requestApproval?: RequestMcpConsentApproval;
   consentEnabled?: boolean;
+  consentDefaultTimeoutMs?: number;
   agentId?: string;
   sessionKey?: string;
 }): Promise<BundleMcpToolRuntime> {
@@ -313,6 +321,8 @@ export async function createBundleMcpToolRuntime(params: {
   const cfgFlag = params.cfg?.mcp?.approvals?.enabled;
   const consentEnabled =
     params.consentEnabled !== undefined ? params.consentEnabled : cfgFlag !== false;
+  const consentDefaultTimeoutMs =
+    params.consentDefaultTimeoutMs ?? params.cfg?.mcp?.approvals?.defaultTimeoutMs;
   const materialized = await materializeBundleMcpToolsForRun({
     runtime,
     reservedToolNames: params.reservedToolNames,
@@ -321,6 +331,7 @@ export async function createBundleMcpToolRuntime(params: {
     },
     requestApproval: params.requestApproval,
     consentEnabled,
+    consentDefaultTimeoutMs,
     agentId: params.agentId,
     sessionKey: params.sessionKey,
   });

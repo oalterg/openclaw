@@ -122,6 +122,25 @@ single-user CI runs where there is no human in the loop), set:
 When disabled, MCP tools that return the envelope pass through verbatim;
 the model receives `requires_confirmation: true` and decides what to do.
 
+### Wait window
+
+When the envelope omits `expires_in_seconds`, OpenClaw waits up to 5 min
+(300_000 ms) by default for a `/approve` reply — tuned for mobile reply
+channels (WhatsApp/Telegram/SMS) where notification → unlock → context →
+tap is realistically 60–180 s. Override:
+
+```jsonc
+{
+  "mcp": {
+    "approvals": { "defaultTimeoutMs": 240000 },
+  },
+}
+```
+
+The value is clamped to `[1000, 600000]` ms. Envelope-supplied
+`expires_in_seconds` always wins when present, and is also capped at
+10 min.
+
 ## Reference servers
 
 The HomeBrain integrations module is a working reference implementation —

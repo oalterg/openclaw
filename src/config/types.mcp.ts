@@ -60,5 +60,14 @@ export type McpConfig = {
      * leaving it on is the conservative default).
      */
     enabled?: boolean;
+    /**
+     * How long to wait for a `/approve` reply when the MCP envelope
+     * does not specify its own `expires_in_seconds`. Defaults to 5min
+     * (300_000ms), tuned for mobile reply channels (WhatsApp/Telegram/
+     * SMS) where notification → unlock → context → tap is realistically
+     * 60–180s. Hard-capped at 10min (600_000ms); envelope-provided TTLs
+     * are also capped at 10min.
+     */
+    defaultTimeoutMs?: number;
   };
 };
