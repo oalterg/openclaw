@@ -70,6 +70,21 @@ function toAgentToolResult(params: {
   };
 }
 
+/** Resolve `mcp.approvals` config into the two values the materializer
+ *  consumes. Explicit caller overrides (typically from tests) take
+ *  precedence over the OpenClaw config. */
+export function resolveMcpApprovalsConfig(
+  cfg: OpenClawConfig | undefined,
+  overrides?: { consentEnabled?: boolean; consentDefaultTimeoutMs?: number },
+): { consentEnabled: boolean; consentDefaultTimeoutMs: number | undefined } {
+  const cfgFlag = cfg?.mcp?.approvals?.enabled;
+  const consentEnabled =
+    overrides?.consentEnabled !== undefined ? overrides.consentEnabled : cfgFlag !== false;
+  const consentDefaultTimeoutMs =
+    overrides?.consentDefaultTimeoutMs ?? cfg?.mcp?.approvals?.defaultTimeoutMs;
+  return { consentEnabled, consentDefaultTimeoutMs };
+}
+
 /** Run a single MCP tool call through the consent gate.
  *
  *  Pure protocol — no global state. The flow is:
@@ -316,13 +331,11 @@ export async function createBundleMcpToolRuntime(params: {
     workspaceDir: params.workspaceDir,
     cfg: params.cfg,
   });
-  // Resolve the consentEnabled default from the OpenClaw config, falling
-  // back to true (opt-in by MCP server, opt-out per-deployment).
-  const cfgFlag = params.cfg?.mcp?.approvals?.enabled;
-  const consentEnabled =
-    params.consentEnabled !== undefined ? params.consentEnabled : cfgFlag !== false;
-  const consentDefaultTimeoutMs =
-    params.consentDefaultTimeoutMs ?? params.cfg?.mcp?.approvals?.defaultTimeoutMs;
+  const resolved = resolveMcpApprovalsConfig(params.cfg, {
+    consentEnabled: params.consentEnabled,
+    consentDefaultTimeoutMs: params.consentDefaultTimeoutMs,
+  });
+  const { consentEnabled, consentDefaultTimeoutMs } = resolved;
   const materialized = await materializeBundleMcpToolsForRun({
     runtime,
     reservedToolNames: params.reservedToolNames,

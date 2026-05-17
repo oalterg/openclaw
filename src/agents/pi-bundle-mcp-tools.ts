@@ -20,4 +20,5 @@ export {
 export {
   createBundleMcpToolRuntime,
   materializeBundleMcpToolsForRun,
+  resolveMcpApprovalsConfig,
 } from "./pi-bundle-mcp-materialize.js";

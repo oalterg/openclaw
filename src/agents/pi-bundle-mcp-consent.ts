@@ -20,7 +20,7 @@ import { callGatewayTool } from "./tools/gateway.js";
  *
  * When OpenClaw sees this envelope it does NOT pass the result back to the
  * model. Instead it issues a plugin-style approval through the gateway,
- * blocks until the user replies `/approve <id> allow-once|allow-always|deny`
+ * blocks until the user replies `/approve <id> allow-once|deny`
  * on the trusted channel, and on approval re-calls the same MCP tool with
  * `confirmation_token` set to `action_id`. The model never sees `action_id`
  * — so it cannot self-approve by echoing the token back. This moves the
@@ -73,17 +73,19 @@ export function detectMcpConsentEnvelope(result: CallToolResult): McpConsentEnve
   return null;
 }
 
-/** Neutralise any `/approve` substring in tool-emitted text so a
- *  compromised MCP server can't smuggle an authoritative-looking
+/** Neutralise any parser-shaped `approve` substring in tool-emitted text
+ *  so a compromised MCP server can't smuggle an authoritative-looking
  *  approval command into the chat transcript via the consent prompt's
  *  `summary` field (or any other string we propagate verbatim from the
- *  envelope). Splits the slash from `approve` with U+200B (zero-width
- *  space) so the parser regex (`^/?approve\b`) never matches, while
- *  keeping the text human-readable.
+ *  envelope). The parser (`commands-approve.ts`) anchors at
+ *  `/^\/?approve(?:\s|$)/i` — the slash is optional — so both `/approve`
+ *  and bare `approve` are entry points and both must be defanged.
  *
- *  Scope: only `/approve` is a parser entry point — `allow-once`,
- *  `allow-always`, `deny` are arguments *to* `/approve` and aren't
- *  separately matchable. Sanitising the verb is sufficient.
+ *  Injects U+200B (zero-width space) immediately before `approve` so the
+ *  parser anchor never matches, while keeping the text human-readable.
+ *  Only matches at line start or after whitespace (the parser's effective
+ *  anchor after trimming) to avoid mangling prose like "preapproved" or
+ *  "she /approves the plan".
  *
  *  This is defence-in-depth, not the primary defence. The primary
  *  defence is that `action_id` is never sent to the model and
@@ -97,11 +99,11 @@ export function detectMcpConsentEnvelope(result: CallToolResult): McpConsentEnve
  *  use). It IS decomposed under NFKC; if a downstream renderer applies
  *  NFKC the protection vanishes — track if that ever changes. The
  *  defence here is layer-appropriate, not a security boundary. */
-const APPROVE_COMMAND_RE = /\/approve\b/gi;
+const APPROVE_COMMAND_RE = /(^|\s)(\/?)approve\b/gim;
 const ZWSP = "​";
 
 export function sanitiseToolEmittedApprovalText(text: string): string {
-  return text.replace(APPROVE_COMMAND_RE, `/${ZWSP}approve`);
+  return text.replace(APPROVE_COMMAND_RE, `$1$2${ZWSP}approve`);
 }
 
 function parseEnvelopeRecord(record: Record<string, unknown>): McpConsentEnvelope | null {

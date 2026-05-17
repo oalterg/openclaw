@@ -105,6 +105,7 @@ import { createBundleLspToolRuntime } from "../../pi-bundle-lsp-runtime.js";
 import {
   getOrCreateSessionMcpRuntime,
   materializeBundleMcpToolsForRun,
+  resolveMcpApprovalsConfig,
 } from "../../pi-bundle-mcp-tools.js";
 import type { EmbeddedContextFile } from "../../pi-embedded-helpers.js";
 import {
@@ -1642,6 +1643,7 @@ export async function runEmbeddedAttempt(
           cfg: params.config,
         })
       : undefined;
+    const mcpApprovals = resolveMcpApprovalsConfig(params.config);
     const bundleMcpRuntime = bundleMcpSessionRuntime
       ? await materializeBundleMcpToolsForRun({
           runtime: bundleMcpSessionRuntime,
@@ -1657,6 +1659,8 @@ export async function runEmbeddedAttempt(
           // a permanent deny gate.
           agentId: params.agentId,
           sessionKey: params.sessionKey,
+          consentEnabled: mcpApprovals.consentEnabled,
+          consentDefaultTimeoutMs: mcpApprovals.consentDefaultTimeoutMs,
         })
       : undefined;
     const bundleLspEnabled = shouldCreateBundleLspRuntimeForAttempt({
