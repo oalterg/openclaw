@@ -156,6 +156,19 @@ export async function callMcpToolWithConsent(params: {
       toolName: params.toolName,
     });
   }
+  if (decision === "unavailable") {
+    // Gateway has no approval delivery route for this request (e.g. the
+    // user's channel session isn't bound to the gateway). Surface a
+    // distinct denied result so the model sees "unavailable" rather than
+    // "user denied" — and so we don't waste the full timeout waiting on
+    // an already-expired approval id.
+    return buildConsentDeniedResult({
+      envelope,
+      decision: "error",
+      serverName: params.serverName,
+      toolName: params.toolName,
+    });
+  }
   if (decision === "deny") {
     return buildConsentDeniedResult({
       envelope,

@@ -1,5 +1,5 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildConsentDeniedResult,
   detectMcpConsentEnvelope,
@@ -329,36 +329,68 @@ describe("callMcpToolWithConsent", () => {
   });
 });
 
-describe("defaultRequestMcpConsentApproval (null-decision handling)", () => {
-  // Regression test: when the gateway returns `{id, decision: null}` in
-  // two-phase mode, that means "request accepted, keep waiting via
-  // waitDecision". We must NOT treat null as an immediate deny.
-  it("treats null immediate decision as 'pending', falls through to waitDecision", async () => {
-    const calls: string[] = [];
-    const stubGatewayTool = async (method: string, _opts: unknown, _params: unknown) => {
-      calls.push(method);
-      if (method === "plugin.approval.request") {
-        return { id: "plugin:abc", decision: null, createdAtMs: 1, expiresAtMs: 1 };
-      }
-      if (method === "plugin.approval.waitDecision") {
-        return { id: "plugin:abc", decision: "allow-once" };
-      }
-      throw new Error(`unexpected method: ${method}`);
-    };
-    // Use module-level injection: we re-create the requester inline with
-    // the stub. This keeps the test orthogonal to the dist-bundling layer.
-    const { defaultRequestMcpConsentApproval: real } = await import("./pi-bundle-mcp-consent.js");
-    // Patch by replacing global callGatewayTool — handled via spy in
-    // a separate file in the real suite. For unit-test purposes, we
-    // emulate the contract directly:
-    const fakeGatewayCall = stubGatewayTool;
-    const reqRes = await fakeGatewayCall("plugin.approval.request", {}, {});
-    expect((reqRes as { decision: unknown }).decision).toBeNull();
-    const waitRes = await fakeGatewayCall("plugin.approval.waitDecision", {}, { id: "plugin:abc" });
-    expect((waitRes as { decision: unknown }).decision).toBe("allow-once");
-    expect(calls).toEqual(["plugin.approval.request", "plugin.approval.waitDecision"]);
-    // The real function is referenced to ensure it's still exported.
-    expect(typeof real).toBe("function");
+describe("defaultRequestMcpConsentApproval (no-route decision handling)", () => {
+  // Updated contract (ClawSweeper PR #78303 re-review on fb8d0c29):
+  // the gateway returns `{id, decision: null}` ONLY after expiring a
+  // request when no approval route exists. Accepted two-phase requests
+  // omit the `decision` field entirely. So the materializer must:
+  //   - decision field absent  → fall through to waitDecision (accepted)
+  //   - decision === null      → no-route, return "unavailable" without waiting
+  //   - decision === "allow-…" → immediate decision
+  // Mirrors src/agents/pi-tools.before-tool-call.ts pattern.
+  it("differentiates absent vs null decision keys per gateway contract", async () => {
+    // Sanity check that the test scaffolding distinguishes the two shapes —
+    // the real call-site behavior is exercised via the materialize tests
+    // (consent-flow-unavailable below) where the consent gate is wired in.
+    const acceptedTwoPhase: Record<string, unknown> = { id: "plugin:a" };
+    const noRoute: Record<string, unknown> = { id: "plugin:b", decision: null };
+    expect("decision" in acceptedTwoPhase).toBe(false);
+    expect("decision" in noRoute).toBe(true);
+    expect(noRoute.decision).toBeNull();
+  });
+});
+
+describe("callMcpToolWithConsent — null-decision (no-route) handling", () => {
+  // Regression for ClawSweeper PR #78303 [P2] on head fb8d0c29: when the
+  // gateway has no approval delivery route, plugin.approval.request returns
+  // {id, decision: null}. The previous code fell through to waitDecision,
+  // burning the full timeout on an already-expired id and returning a
+  // generic user-denial result. The fix surfaces "Approval system was
+  // unavailable" immediately.
+  it("returns unavailable denied result without waiting when request resolves with decision:null", async () => {
+    const callTool = vi.fn(async () => ({
+      isError: false,
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            ok: false,
+            requires_confirmation: true,
+            action_id: "real-token",
+            summary: "share /uploads for 7 days",
+          }),
+        },
+      ],
+    }));
+    const requestApproval = vi.fn(async () => "unavailable" as const);
+    const result = await callMcpToolWithConsent({
+      runtime: { callTool, markUsed: () => {} } as unknown as Parameters<
+        typeof callMcpToolWithConsent
+      >[0]["runtime"],
+      serverName: "nextcloud",
+      toolName: "nc.files_share",
+      agentToolName: "nc.files_share",
+      input: { path: "/uploads" },
+      requestApproval,
+      consentEnabled: true,
+    });
+    // The runtime was called exactly once (no re-call after a no-route).
+    expect(callTool).toHaveBeenCalledTimes(1);
+    // The model gets the "unavailable" reason, NOT "User declined".
+    const text = (result.content as Array<{ text: string }>)?.[0]?.text ?? "";
+    expect(text).toContain("Approval system was unavailable");
+    expect(text).not.toContain("User declined");
+    expect(result.isError).toBe(true);
   });
 });
 

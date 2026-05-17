@@ -212,11 +212,27 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
   // single most-recent pending approval. Better UX than forcing a
   // copy-paste of a uuid; refuses on ambiguity (multiple pending).
   // Authorization has already been verified above before querying the list.
+  //
+  // CRITICAL: filter candidates to the initiating approval surface (channel
+  // + account) before accepting one. The gateway's list endpoints are
+  // visibility-scoped to the backend/device client, NOT to the chat that
+  // sent the /approve. Without this filter, an authorized sender in one
+  // chat could resolve another chat's pending approval simply because it
+  // was the only one visible to the backend client. Requests without a
+  // bound turn-source surface (e.g. dashboard-issued approvals) are
+  // excluded from implicit-id resolution and require an explicit id.
+  type PendingApprovalRecord = {
+    id: string;
+    request?: {
+      turnSourceChannel?: string | null;
+      turnSourceAccountId?: string | null;
+    } | null;
+  };
   let approvalId: string;
   if (parsed.idKind === "implicit") {
-    let pendingPlugin: Array<{ id: string }> = [];
+    let pendingPlugin: PendingApprovalRecord[] = [];
     try {
-      const r = await callGateway<Array<{ id: string }>>({
+      const r = await callGateway<PendingApprovalRecord[]>({
         method: "plugin.approval.list",
         params: {},
         clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
@@ -227,9 +243,9 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
     } catch {
       pendingPlugin = [];
     }
-    let pendingExec: Array<{ id: string }> = [];
+    let pendingExec: PendingApprovalRecord[] = [];
     try {
-      const r = await callGateway<Array<{ id: string }>>({
+      const r = await callGateway<PendingApprovalRecord[]>({
         method: "exec.approval.list",
         params: {},
         clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
@@ -240,7 +256,31 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
     } catch {
       pendingExec = [];
     }
-    const candidates = [...pendingPlugin, ...pendingExec].filter((r) => !!r?.id);
+    const initiatingChannel = normalizeLowercaseStringOrEmpty(params.command.channel);
+    const initiatingAccount = normalizeLowercaseStringOrEmpty(effectiveAccountId ?? "");
+    const matchesInitiatingSurface = (r: PendingApprovalRecord): boolean => {
+      const recordChannel = normalizeLowercaseStringOrEmpty(r.request?.turnSourceChannel ?? "");
+      const recordAccount = normalizeLowercaseStringOrEmpty(r.request?.turnSourceAccountId ?? "");
+      // Unbound requests (no turn-source-channel) are not eligible for
+      // implicit-id resolution from a chat — they must be approved via
+      // explicit id to remove cross-surface ambiguity.
+      if (!recordChannel) {
+        return false;
+      }
+      if (recordChannel !== initiatingChannel) {
+        return false;
+      }
+      // If the record carries an account binding, it must match the
+      // command's account. Records without an account binding are
+      // accepted if the channel matches (single-account channels).
+      if (recordAccount && initiatingAccount && recordAccount !== initiatingAccount) {
+        return false;
+      }
+      return true;
+    };
+    const candidates = [...pendingPlugin, ...pendingExec]
+      .filter((r) => !!r?.id)
+      .filter(matchesInitiatingSurface);
     if (candidates.length === 0) {
       return {
         shouldContinue: false,

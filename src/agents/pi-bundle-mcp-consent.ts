@@ -154,7 +154,7 @@ export type RequestMcpConsentApproval = (params: {
    *  DEFAULT_CONSENT_TIMEOUT_MS applies when omitted. */
   defaultTimeoutMs?: number;
   signal?: AbortSignal;
-}) => Promise<McpConsentDecision>;
+}) => Promise<McpConsentDecision | "unavailable">;
 
 /** Fallback wait window when the MCP envelope omits a TTL. Calibrated
  *  for mobile reply channels (WhatsApp/Telegram/SMS) where notification
@@ -219,11 +219,23 @@ export const defaultRequestMcpConsentApproval: RequestMcpConsentApproval = async
   if (!id) {
     return "deny";
   }
-  // The gateway returns `decision: null` in two-phase mode to mean
-  // "request accepted, keep waiting via waitDecision". Only treat a
-  // non-null, non-undefined decision as an immediate result. Both null
-  // and undefined fall through to waitDecision.
+  // Distinguish three immediate-decision shapes from the gateway:
+  //   - `decision` key absent: accepted two-phase request — fall through
+  //     to waitDecision.
+  //   - `decision: null`: gateway expired the request because no approval
+  //     route exists (see src/gateway/server-methods/approval-shared.ts).
+  //     Don't wait on an already-expired id; surface "unavailable" so the
+  //     caller can build a no-route denied result rather than a generic
+  //     user-denial result. Mirrors src/agents/pi-tools.before-tool-call.ts.
+  //   - any other value: immediate decision — normalize and return.
+  const hasImmediate = requestResult !== undefined && "decision" in requestResult;
   const immediate = requestResult?.decision;
+  if (hasImmediate && immediate === null) {
+    logWarn(
+      `bundle-mcp consent: gateway returned no-route for ${ctx.serverName}.${ctx.toolName} (no approval delivery channel for this request)`,
+    );
+    return "unavailable";
+  }
   if (immediate !== undefined && immediate !== null) {
     return normalizeDecision(immediate);
   }
