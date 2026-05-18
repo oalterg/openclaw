@@ -1083,8 +1083,12 @@ describe("handleApproveCommand", () => {
       exec?: Array<{ id: string; request?: Record<string, unknown> }>;
     }) {
       callGatewayMock.mockImplementation(async ({ method }: { method: string }) => {
-        if (method === "plugin.approval.list") return pending.plugin ?? [];
-        if (method === "exec.approval.list") return pending.exec ?? [];
+        if (method === "plugin.approval.list") {
+          return pending.plugin ?? [];
+        }
+        if (method === "exec.approval.list") {
+          return pending.exec ?? [];
+        }
         return { ok: true };
       });
     }
