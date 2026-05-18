@@ -154,7 +154,7 @@ export type RequestMcpConsentApproval = (params: {
    *  DEFAULT_CONSENT_TIMEOUT_MS applies when omitted. */
   defaultTimeoutMs?: number;
   signal?: AbortSignal;
-}) => Promise<McpConsentDecision | "unavailable">;
+}) => Promise<McpConsentDecision | "unavailable" | "expired">;
 
 /** Fallback wait window when the MCP envelope omits a TTL. Calibrated
  *  for mobile reply channels (WhatsApp/Telegram/SMS) where notification
@@ -270,7 +270,14 @@ export const defaultRequestMcpConsentApproval: RequestMcpConsentApproval = async
     logWarn(`bundle-mcp consent: gateway waitDecision failed: ${String(err)}`);
     return "deny";
   }
-  return normalizeDecision(waitResult?.decision);
+  // No decision after the wait → the approval expired without a user
+  // reply. Distinguish this from an explicit deny so audit logs and the
+  // synthetic tool result say "timed out" rather than "user declined".
+  const finalDecision = waitResult?.decision;
+  if (finalDecision === undefined || finalDecision === null) {
+    return "expired";
+  }
+  return normalizeDecision(finalDecision);
 };
 
 function normalizeDecision(value: unknown): McpConsentDecision {

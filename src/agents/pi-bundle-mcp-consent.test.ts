@@ -357,6 +357,44 @@ describe("callMcpToolWithConsent — null-decision (no-route) handling", () => {
   // burning the full timeout on an already-expired id and returning a
   // generic user-denial result. The fix surfaces "Approval system was
   // unavailable" immediately.
+  it("returns expired result (not deny) when the approval times out without a user reply", async () => {
+    // ClawSweeper PR #78303 P3 follow-up on head edbdd248: wait-timeout
+    // was being reported as "User declined", falsely attributing an
+    // action to the user. The fix returns "expired" so the synthetic
+    // result says "Approval timed out".
+    const callTool = vi.fn(async () => ({
+      isError: false,
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            ok: false,
+            requires_confirmation: true,
+            action_id: "act-timeout",
+            summary: "send email",
+          }),
+        },
+      ],
+    }));
+    const requestApproval = vi.fn(async () => "expired" as const);
+    const result = await callMcpToolWithConsent({
+      runtime: { callTool, markUsed: () => {} } as unknown as Parameters<
+        typeof callMcpToolWithConsent
+      >[0]["runtime"],
+      serverName: "email",
+      toolName: "email.send_direct",
+      agentToolName: "email.send_direct",
+      input: { to: "x@example.com" },
+      requestApproval,
+      consentEnabled: true,
+    });
+    expect(callTool).toHaveBeenCalledTimes(1);
+    const text = (result.content as Array<{ text: string }>)?.[0]?.text ?? "";
+    expect(text).toContain("Approval timed out");
+    expect(text).not.toContain("User declined");
+    expect(result.isError).toBe(true);
+  });
+
   it("returns unavailable denied result without waiting when request resolves with decision:null", async () => {
     const callTool = vi.fn(async () => ({
       isError: false,

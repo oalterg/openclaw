@@ -169,6 +169,19 @@ export async function callMcpToolWithConsent(params: {
       toolName: params.toolName,
     });
   }
+  if (decision === "expired") {
+    // The approval prompt was delivered but no `/approve` reply arrived
+    // before the wait window elapsed. Surface a timeout result so audit
+    // logs and the model's feedback say "timed out" rather than "user
+    // declined" — the latter would falsely attribute an action to the
+    // user.
+    return buildConsentDeniedResult({
+      envelope,
+      decision: "expired",
+      serverName: params.serverName,
+      toolName: params.toolName,
+    });
+  }
   if (decision === "deny") {
     return buildConsentDeniedResult({
       envelope,
