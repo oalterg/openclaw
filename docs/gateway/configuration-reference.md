@@ -141,7 +141,7 @@ target server during config edits.
 - `mcp.approvals.enabled`: master switch for the channel-mediated MCP tool
   approval gate. Defaults to `true`. Gating is only triggered by MCP servers
   that opt in via the consent envelope (`{ok: false, requires_confirmation:
-  true, action_id, summary}`); servers that don't return it are unaffected.
+true, action_id, summary}`); servers that don't return it are unaffected.
   Set to `false` to disable gating entirely — the consent envelope is then
   surfaced to the model verbatim (legacy behavior).
 - `mcp.approvals.defaultTimeoutMs`: fallback wait window (milliseconds) for
