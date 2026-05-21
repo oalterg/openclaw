@@ -7,6 +7,8 @@ import { isApprovalNotFoundError } from "../../infra/approval-errors.js";
 import { resolveApprovalOverGateway } from "../../infra/approval-gateway-resolver.js";
 import { resolveApprovalCommandAuthorization } from "../../infra/channel-approval-auth.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { callGateway } from "../../gateway/call.js";
+import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../../gateway/protocol/client-info.js";
 import { normalizeLowercaseStringOrEmpty } from "../../shared/string-coerce.js";
 import { resolveChannelAccountId } from "./channel-context.js";
 import { requireGatewayClientScope } from "./command-gates.js";

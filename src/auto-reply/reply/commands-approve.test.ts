@@ -16,9 +16,14 @@ import { handleApproveCommand } from "./commands-approve.js";
 import type { HandleCommandsParams } from "./commands-types.js";
 
 const resolveApprovalOverGatewayMock = vi.hoisted(() => vi.fn());
+const callGatewayMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../infra/approval-gateway-resolver.js", () => ({
   resolveApprovalOverGateway: resolveApprovalOverGatewayMock,
+}));
+
+vi.mock("../../gateway/call.js", () => ({
+  callGateway: callGatewayMock,
 }));
 
 vi.mock("../../globals.js", () => ({
@@ -1111,10 +1116,7 @@ describe("handleApproveCommand", () => {
       const result = await handleApproveCommand(params, true);
       expect(result?.reply?.text).toContain("No pending approval to act on");
       // Critically: no resolve call was made — the cross-surface request stayed pending.
-      const resolveCalls = callGatewayMock.mock.calls.filter(
-        (c) => (c[0] as { method?: string })?.method?.endsWith(".resolve"),
-      );
-      expect(resolveCalls).toHaveLength(0);
+      expect(resolveApprovalOverGatewayMock).not.toHaveBeenCalled();
     });
 
     it("rejects implicit /approve when the only pending approval has no bound surface", async () => {
@@ -1149,10 +1151,11 @@ describe("handleApproveCommand", () => {
         { commands: { text: true }, channels: { slack: { allowFrom: ["*"] } } } as OpenClawConfig,
         { Provider: "slack", Surface: "slack", SenderId: "U123" },
       );
+      resolveApprovalOverGatewayMock.mockResolvedValue(undefined);
       const result = await handleApproveCommand(params, true);
       expect(result?.reply?.text).toContain("Approval allow-once submitted");
-      expectGatewayResolveCall({
-        callIndex: callGatewayMock.mock.calls.length - 1,
+      expectApprovalResolverCall({
+        callIndex: resolveApprovalOverGatewayMock.mock.calls.length - 1,
         method: "exec.approval.resolve",
         id: "abc-same-channel",
       });
