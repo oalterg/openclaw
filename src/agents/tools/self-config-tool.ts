@@ -136,7 +136,7 @@ async function handleStatus(): Promise<unknown> {
 
   return {
     configured: rows,
-    loadedPlugins: [...loaded].sort(),
+    loadedPlugins: [...loaded].toSorted(),
   };
 }
 
@@ -267,10 +267,18 @@ async function handleSetPolicy(params: ChannelsToolParams): Promise<unknown> {
       const next = draft as unknown as Record<string, unknown>;
       const channels = (next.channels ?? {}) as Record<string, Record<string, unknown>>;
       const entry = channels[channel] ?? {};
-      if (params.dmPolicy !== undefined) entry.dmPolicy = params.dmPolicy;
-      if (params.allowFrom !== undefined) entry.allowFrom = params.allowFrom;
-      if (params.groupPolicy !== undefined) entry.groupPolicy = params.groupPolicy;
-      if (params.groupAllowFrom !== undefined) entry.groupAllowFrom = params.groupAllowFrom;
+      if (params.dmPolicy !== undefined) {
+        entry.dmPolicy = params.dmPolicy;
+      }
+      if (params.allowFrom !== undefined) {
+        entry.allowFrom = params.allowFrom;
+      }
+      if (params.groupPolicy !== undefined) {
+        entry.groupPolicy = params.groupPolicy;
+      }
+      if (params.groupAllowFrom !== undefined) {
+        entry.groupAllowFrom = params.groupAllowFrom;
+      }
       if (entry.dmPolicy && entry.dmPolicy !== "disabled") {
         entry.enabled = true;
       }
