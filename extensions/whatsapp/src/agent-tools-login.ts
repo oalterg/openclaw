@@ -2,7 +2,7 @@ import type { ChannelAgentTool } from "openclaw/plugin-sdk/channel-contract";
 import { Type } from "typebox";
 import { startWebLoginWithQr, waitForWebLogin } from "../login-qr-api.js";
 
-const QR_DATA_URL_MAX_LENGTH = 16_384;
+const QR_URL_MAX_LENGTH = 512;
 
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
@@ -24,25 +24,21 @@ export function createWhatsAppLoginTool(): ChannelAgentTool {
       timeoutMs: Type.Optional(Type.Number()),
       force: Type.Optional(Type.Boolean()),
       accountId: Type.Optional(Type.String()),
-      currentQrDataUrl: Type.Optional(
+      currentQrUrl: Type.Optional(
         Type.String({
-          maxLength: QR_DATA_URL_MAX_LENGTH,
-          pattern: "^data:image/png;base64,",
+          maxLength: QR_URL_MAX_LENGTH,
+          pattern: "^/api/media/agent-output/",
         }),
       ),
     }),
     execute: async (_toolCallId, args) => {
-      const renderQrReply = (params: {
-        message: string;
-        qrDataUrl: string;
-        connected?: boolean;
-      }) => {
+      const renderQrReply = (params: { message: string; qrUrl: string; connected?: boolean }) => {
         const text = [
           params.message,
           "",
           "Open WhatsApp → Linked Devices and scan:",
           "",
-          `![whatsapp-qr](${params.qrDataUrl})`,
+          `![whatsapp-qr](${params.qrUrl})`,
         ].join("\n");
         return {
           content: [{ type: "text" as const, text }],
@@ -62,14 +58,12 @@ export function createWhatsAppLoginTool(): ChannelAgentTool {
             typeof (args as { timeoutMs?: unknown }).timeoutMs === "number"
               ? (args as { timeoutMs?: number }).timeoutMs
               : undefined,
-          currentQrDataUrl: readOptionalString(
-            (args as { currentQrDataUrl?: unknown }).currentQrDataUrl,
-          ),
+          currentQrUrl: readOptionalString((args as { currentQrUrl?: unknown }).currentQrUrl),
         });
-        if (result.qrDataUrl) {
+        if (result.qrUrl) {
           return renderQrReply({
             message: result.message,
-            qrDataUrl: result.qrDataUrl,
+            qrUrl: result.qrUrl,
             connected: result.connected,
           });
         }
@@ -91,7 +85,7 @@ export function createWhatsAppLoginTool(): ChannelAgentTool {
             : false,
       });
 
-      if (!result.qrDataUrl) {
+      if (!result.qrUrl) {
         return {
           content: [
             {
@@ -105,7 +99,7 @@ export function createWhatsAppLoginTool(): ChannelAgentTool {
 
       return renderQrReply({
         message: result.message,
-        qrDataUrl: result.qrDataUrl,
+        qrUrl: result.qrUrl,
         connected: result.connected,
       });
     },

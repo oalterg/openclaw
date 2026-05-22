@@ -83,6 +83,10 @@ const MARKDOWN_PARSE_LIMIT = 40_000;
 const MARKDOWN_CACHE_LIMIT = 200;
 const MARKDOWN_CACHE_MAX_CHARS = 50_000;
 const INLINE_DATA_IMAGE_RE = /^data:image\/[a-z0-9.+-]+;base64,/i;
+// Same-origin gateway media URL written by agent tools (e.g. WhatsApp QR).
+// The id matches what `saveMediaBuffer` produces; constraints mirror the
+// server-side guard in `src/gateway/agent-tool-media.ts`.
+const AGENT_TOOL_MEDIA_URL_RE = /^\/api\/media\/agent-output\/[A-Za-z0-9._%-]{1,256}$/;
 const markdownCache = new Map<string, string>();
 const TAIL_LINK_BLUR_CLASS = "chat-link-tail-blur";
 
@@ -506,14 +510,16 @@ md.renderer.rules.html_inline = (tokens, idx) => {
   return escapeHtml(token.content);
 };
 
-// Override image to only allow base64 data URIs (#15437)
+// Override image to only allow base64 data URIs (#15437) and same-origin
+// gateway media URLs written by agent tools. Both sources are produced
+// inside our trust boundary; arbitrary external <img src> stays blocked.
 md.renderer.rules.image = (tokens, idx) => {
   const token = tokens[idx];
   const src = token.attrGet("src")?.trim() ?? "";
   // Use token.content which preserves raw markdown formatting (e.g. **bold**)
   // to match original marked.js behavior.
   const alt = normalizeMarkdownImageLabel(token.content);
-  if (!INLINE_DATA_IMAGE_RE.test(src)) {
+  if (!INLINE_DATA_IMAGE_RE.test(src) && !AGENT_TOOL_MEDIA_URL_RE.test(src)) {
     return escapeHtml(alt);
   }
   return `<img class="markdown-inline-image" src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`;
