@@ -43,6 +43,7 @@ import { createMessageTool } from "./tools/message-tool.js";
 import { createMusicGenerateTool } from "./tools/music-generate-tool.js";
 import { createNodesTool } from "./tools/nodes-tool.js";
 import { createPdfTool } from "./tools/pdf-tool.js";
+import { createChannelsSelfConfigTool } from "./tools/self-config-tool.js";
 import { createSessionStatusTool } from "./tools/session-status-tool.js";
 import { createSessionsHistoryTool } from "./tools/sessions-history-tool.js";
 import { createSessionsListTool } from "./tools/sessions-list-tool.js";
@@ -384,6 +385,15 @@ export function createOpenClawTools(
               : {}),
           }),
         ]),
+    // Self-configuration tool: available in BOTH embedded (gateway-hosted
+    // chat) and non-embedded (openclaw agent --local) modes. Lets the agent
+    // enumerate the channel catalog, install channel plugins from it, and
+    // write channel config skeletons — so users can onboard messengers
+    // ("link WhatsApp", "add Telegram") entirely from chat. Per-channel
+    // login (QR, OAuth, token) is delegated to the channel's own agent
+    // tool (e.g. whatsapp_login), which becomes available once the plugin
+    // is installed.
+    createChannelsSelfConfigTool(),
     ...(messageTool && includeMessageTool ? [messageTool] : []),
     ...collectPresentOpenClawTools([heartbeatTool]),
     createTtsTool({
