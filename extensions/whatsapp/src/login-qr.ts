@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { logInfo } from "openclaw/plugin-sdk/logging-core";
+import {
+  AGENT_TOOL_MEDIA_SUBDIR,
+  formatAgentToolMediaUrl,
+  saveMediaBuffer,
+} from "openclaw/plugin-sdk/media-store";
 import { getRuntimeConfig } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import { danger, info, success } from "openclaw/plugin-sdk/runtime-env";
 import { defaultRuntime, type RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
@@ -9,7 +14,40 @@ import {
   waitForWhatsAppLoginResult,
   WHATSAPP_LOGGED_OUT_QR_MESSAGE,
 } from "./connection-controller.js";
-import { renderQrPngDataUrl } from "./qr-image.js";
+import { renderQrPngBase64 } from "./qr-image.js";
+
+type QrAssets = {
+  /**
+   * Path URL into the gateway media endpoint. Short and faithful — the chat
+   * agent emits this. Small/quantized local models cannot reliably re-emit a
+   * multi-KB `data:image/png;base64,…` URL verbatim; they preserve the header
+   * bytes and then drift into hallucinated tokens.
+   */
+  qrUrl: string;
+  /**
+   * Inline data URL form. The operator CLI/setup surface still wants this
+   * (e.g. for `writeQrDataUrlToTempFile`). Kept alongside `qrUrl` so we
+   * render once and pay only one extra in-memory string.
+   */
+  qrDataUrl: string;
+};
+
+const QR_PNG_DATA_URL_PREFIX = "data:image/png;base64,";
+
+/**
+ * Render the QR string into a PNG, persist the bytes through the shared media
+ * store, and return both forms: the chat-display `/api/media/agent-output/<id>`
+ * URL plus the legacy `data:image/png;base64,…` data URL for the CLI path.
+ */
+async function renderAndStoreQrAssets(qr: string): Promise<QrAssets> {
+  const base64 = await renderQrPngBase64(qr);
+  const buffer = Buffer.from(base64, "base64");
+  const saved = await saveMediaBuffer(buffer, "image/png", AGENT_TOOL_MEDIA_SUBDIR);
+  return {
+    qrUrl: formatAgentToolMediaUrl(saved.id),
+    qrDataUrl: `${QR_PNG_DATA_URL_PREFIX}${base64}`,
+  };
+}
 import {
   createWaSocket,
   readWebAuthExistsForDecision,
@@ -20,6 +58,7 @@ import { resolveWhatsAppSocketTiming, type WhatsAppSocketTimingOptions } from ".
 
 type WaSocket = Awaited<ReturnType<typeof createWaSocket>>;
 export type StartWebLoginWithQrResult = {
+  qrUrl?: string;
   qrDataUrl?: string;
   message: string;
   connected?: boolean;
@@ -34,8 +73,9 @@ type ActiveLogin = {
   sock: WaSocket;
   startedAt: number;
   qr?: string;
+  qrUrl?: string;
   qrDataUrl?: string;
-  qrDataUrlVersion?: number;
+  qrUrlVersion?: number;
   qrVersion: number;
   connected: boolean;
   error?: string;
@@ -43,7 +83,7 @@ type ActiveLogin = {
   waitPromise: Promise<void>;
   qrUpdatePromise: Promise<void>;
   resolveQrUpdate: (() => void) | null;
-  qrRenderPromise: Promise<string> | null;
+  qrRenderPromise: Promise<QrAssets> | null;
   verbose: boolean;
   runtime: RuntimeEnv;
   socketTiming: WhatsAppSocketTimingOptions;
@@ -99,23 +139,23 @@ function updateLoginQrState(login: ActiveLogin, qr: string): number {
   return login.qrVersion;
 }
 
-async function ensureQrDataUrl(params: {
+async function ensureQrAssets(params: {
   accountId: string;
   loginId: string;
   qr: string;
   qrVersion: number;
-}): Promise<string> {
+}): Promise<QrAssets> {
   const current = activeLogins.get(params.accountId);
   if (
     current?.id !== params.loginId ||
     current.qrVersion !== params.qrVersion ||
     current.qr !== params.qr
   ) {
-    return await renderQrPngDataUrl(params.qr);
+    return await renderAndStoreQrAssets(params.qr);
   }
 
-  if (current.qrDataUrl && current.qrDataUrlVersion === params.qrVersion) {
-    return current.qrDataUrl;
+  if (current.qrUrl && current.qrDataUrl && current.qrUrlVersion === params.qrVersion) {
+    return { qrUrl: current.qrUrl, qrDataUrl: current.qrDataUrl };
   }
 
   if (current.qrRenderPromise) {
@@ -128,22 +168,23 @@ async function ensureQrDataUrl(params: {
       if (!latest || latest.id !== params.loginId || !latest.qr) {
         throw new Error("WhatsApp QR is no longer active.");
       }
-      if (latest.qrDataUrl && latest.qrDataUrlVersion === latest.qrVersion) {
-        return latest.qrDataUrl;
+      if (latest.qrUrl && latest.qrDataUrl && latest.qrUrlVersion === latest.qrVersion) {
+        return { qrUrl: latest.qrUrl, qrDataUrl: latest.qrDataUrl };
       }
 
       const qr = latest.qr;
       const qrVersion = latest.qrVersion;
-      const dataUrl = await renderQrPngDataUrl(qr);
+      const assets = await renderAndStoreQrAssets(qr);
       const refreshed = activeLogins.get(params.accountId);
       if (!refreshed || refreshed.id !== params.loginId) {
-        return dataUrl;
+        return assets;
       }
       if (refreshed.qrVersion === qrVersion && refreshed.qr === qr) {
-        refreshed.qrDataUrl = dataUrl;
-        refreshed.qrDataUrlVersion = qrVersion;
+        refreshed.qrUrl = assets.qrUrl;
+        refreshed.qrDataUrl = assets.qrDataUrl;
+        refreshed.qrUrlVersion = qrVersion;
         notifyQrUpdate(refreshed);
-        return dataUrl;
+        return assets;
       }
     }
 
@@ -161,13 +202,13 @@ async function ensureQrDataUrl(params: {
   }
 }
 
-function renderLatestQrDataUrlInBackground(params: {
+function renderLatestQrAssetsInBackground(params: {
   accountId: string;
   loginId: string;
   qr: string;
   qrVersion: number;
 }) {
-  void ensureQrDataUrl(params).catch(() => {
+  void ensureQrAssets(params).catch(() => {
     // Ignore background QR render failures; the caller can still retry or surface
     // the login state without clobbering the active session.
   });
@@ -187,7 +228,7 @@ function attachLoginWaiter(accountId: string, login: ActiveLogin) {
         return;
       }
       const qrVersion = updateLoginQrState(current, qr);
-      renderLatestQrDataUrlInBackground({
+      renderLatestQrAssetsInBackground({
         accountId,
         loginId: login.id,
         qr,
@@ -302,8 +343,9 @@ export async function startWebLoginWithQr(
   }
 
   const existing = activeLogins.get(account.accountId);
-  if (existing && isLoginFresh(existing) && existing.qrDataUrl) {
+  if (existing && isLoginFresh(existing) && existing.qrUrl) {
     return {
+      qrUrl: existing.qrUrl,
       qrDataUrl: existing.qrDataUrl,
       message: "QR already active. Scan it in WhatsApp → Linked Devices.",
     };
@@ -337,7 +379,7 @@ export async function startWebLoginWithQr(
         const current = activeLogins.get(account.accountId);
         if (current && current.id === loginId) {
           const qrVersion = updateLoginQrState(current, qr);
-          renderLatestQrDataUrlInBackground({
+          renderLatestQrAssetsInBackground({
             accountId: account.accountId,
             loginId,
             qr,
@@ -381,7 +423,7 @@ export async function startWebLoginWithQr(
   activeLogins.set(account.accountId, login);
   if (pendingQr) {
     const qrVersion = updateLoginQrState(login, pendingQr);
-    renderLatestQrDataUrlInBackground({
+    renderLatestQrAssetsInBackground({
       accountId: account.accountId,
       loginId: login.id,
       qr: pendingQr,
@@ -423,9 +465,9 @@ export async function startWebLoginWithQr(
     };
   }
 
-  let qrDataUrl: string;
+  let assets: QrAssets;
   try {
-    qrDataUrl = await ensureQrDataUrl({
+    assets = await ensureQrAssets({
       accountId: account.accountId,
       loginId: login.id,
       qr,
@@ -438,7 +480,8 @@ export async function startWebLoginWithQr(
     return { message };
   }
   return {
-    qrDataUrl,
+    qrUrl: assets.qrUrl,
+    qrDataUrl: assets.qrDataUrl,
     message: "Scan this QR in WhatsApp → Linked Devices.",
   };
 }
@@ -448,9 +491,20 @@ export async function waitForWebLogin(
     timeoutMs?: number;
     runtime?: RuntimeEnv;
     accountId?: string;
+    /**
+     * Last QR ref the chat/agent caller has rendered. Compared against the
+     * media-store URL (`/api/media/agent-output/<id>`) we hand back to that
+     * caller; differs = the QR rotated and the caller should re-render.
+     */
+    currentQrUrl?: string;
+    /**
+     * Last QR data URL the CLI/setup caller has rendered. Compared against the
+     * `data:image/png;base64,…` form we hand back to that caller. Kept
+     * separate so each caller compares the form it actually sees.
+     */
     currentQrDataUrl?: string;
   } = {},
-): Promise<{ connected: boolean; message: string; qrDataUrl?: string }> {
+): Promise<{ connected: boolean; message: string; qrUrl?: string; qrDataUrl?: string }> {
   const runtime = opts.runtime ?? defaultRuntime;
   const cfg = getRuntimeConfig();
   const account = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
@@ -472,6 +526,7 @@ export async function waitForWebLogin(
   }
   const timeoutMs = Math.max(opts.timeoutMs ?? 120_000, 1000);
   const deadline = Date.now() + timeoutMs;
+  const currentQrUrl = opts.currentQrUrl;
   const currentQrDataUrl = opts.currentQrDataUrl;
 
   while (true) {
@@ -495,10 +550,17 @@ export async function waitForWebLogin(
       return { connected: true, message };
     }
 
-    if (login.qrDataUrl && currentQrDataUrl && login.qrDataUrl !== currentQrDataUrl) {
+    const urlChanged =
+      currentQrUrl !== undefined && login.qrUrl !== undefined && login.qrUrl !== currentQrUrl;
+    const dataUrlChanged =
+      currentQrDataUrl !== undefined &&
+      login.qrDataUrl !== undefined &&
+      login.qrDataUrl !== currentQrDataUrl;
+    if (urlChanged || dataUrlChanged) {
       return {
         connected: false,
         message: "QR refreshed. Scan the latest code in WhatsApp → Linked Devices.",
+        qrUrl: login.qrUrl,
         qrDataUrl: login.qrDataUrl,
       };
     }

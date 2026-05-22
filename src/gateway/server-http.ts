@@ -68,6 +68,7 @@ type ResolvePluginNodeCapabilityRoute = (
 ) => PluginNodeCapabilitySurface | undefined;
 
 let identityAvatarModulePromise: Promise<typeof import("../agents/identity-avatar.js")> | undefined;
+let agentToolMediaModulePromise: Promise<typeof import("./agent-tool-media.js")> | undefined;
 let controlUiModulePromise: Promise<typeof import("./control-ui.js")> | undefined;
 let embeddingsHttpModulePromise: Promise<typeof import("./embeddings-http.js")> | undefined;
 let managedImageAttachmentsModulePromise:
@@ -107,6 +108,11 @@ function getEmbeddingsHttpModule() {
 function getManagedImageAttachmentsModule() {
   managedImageAttachmentsModulePromise ??= import("./managed-image-attachments.js");
   return managedImageAttachmentsModulePromise;
+}
+
+function getAgentToolMediaModule() {
+  agentToolMediaModulePromise ??= import("./agent-tool-media.js");
+  return agentToolMediaModulePromise;
 }
 
 function getModelsHttpModule() {
@@ -221,6 +227,10 @@ function isToolsInvokePath(pathname: string): boolean {
 
 function isManagedOutgoingImagePath(pathname: string): boolean {
   return pathname.startsWith("/api/chat/media/outgoing/");
+}
+
+function isAgentToolMediaPath(pathname: string): boolean {
+  return pathname.startsWith("/api/media/agent-output/");
 }
 
 function isSessionKillPath(pathname: string): boolean {
@@ -745,6 +755,19 @@ export function createGatewayHttpServer(opts: {
                 rateLimiter,
               },
             ),
+        });
+      }
+
+      if (isAgentToolMediaPath(scopedRequestPath)) {
+        requestStages.push({
+          name: "agent-tool-media",
+          run: async () =>
+            (await getAgentToolMediaModule()).handleAgentToolMediaHttpRequest(req, res, {
+              auth: resolvedAuth,
+              trustedProxies,
+              allowRealIpFallback,
+              rateLimiter,
+            }),
         });
       }
 

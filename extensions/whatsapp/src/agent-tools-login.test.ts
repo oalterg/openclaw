@@ -20,7 +20,7 @@ describe("createWhatsAppLoginTool", () => {
     waitForWebLoginMock.mockResolvedValueOnce({
       connected: false,
       message: "QR refreshed. Scan the latest code in WhatsApp → Linked Devices.",
-      qrDataUrl: "data:image/png;base64,next-qr",
+      qrUrl: "/api/media/agent-output/next-qr.png",
     });
 
     const tool = createWhatsAppLoginTool();
@@ -28,13 +28,13 @@ describe("createWhatsAppLoginTool", () => {
       action: "wait",
       timeoutMs: 5000,
       accountId,
-      currentQrDataUrl: "data:image/png;base64,current-qr",
+      currentQrUrl: "/api/media/agent-output/current-qr.png",
     });
 
     expect(waitForWebLoginMock).toHaveBeenCalledWith({
       accountId,
       timeoutMs: 5000,
-      currentQrDataUrl: "data:image/png;base64,current-qr",
+      currentQrUrl: "/api/media/agent-output/current-qr.png",
     });
     expect(result).toEqual({
       content: [
@@ -45,7 +45,7 @@ describe("createWhatsAppLoginTool", () => {
             "",
             "Open WhatsApp → Linked Devices and scan:",
             "",
-            "![whatsapp-qr](data:image/png;base64,next-qr)",
+            "![whatsapp-qr](/api/media/agent-output/next-qr.png)",
           ].join("\n"),
         },
       ],
@@ -61,7 +61,7 @@ describe("createWhatsAppLoginTool", () => {
     startWebLoginWithQrMock.mockResolvedValueOnce({
       connected: false,
       message: "Scan this QR in WhatsApp → Linked Devices.",
-      qrDataUrl: "data:image/png;base64,current-qr",
+      qrUrl: "/api/media/agent-output/current-qr.png",
     });
     waitForWebLoginMock.mockResolvedValueOnce({
       connected: true,
@@ -75,7 +75,7 @@ describe("createWhatsAppLoginTool", () => {
     expect(waitForWebLoginMock).toHaveBeenCalledWith({
       accountId,
       timeoutMs: 5000,
-      currentQrDataUrl: undefined,
+      currentQrUrl: undefined,
     });
   });
 });

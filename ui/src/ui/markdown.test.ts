@@ -323,6 +323,18 @@ describe("toSanitizedMarkdownHtml", () => {
       );
     });
 
+    it("preserves same-origin agent-tool media URLs", () => {
+      const html = toSanitizedMarkdownHtml("![whatsapp-qr](/api/media/agent-output/abc123.png)");
+      expect(html).toBe(
+        '<p><img class="markdown-inline-image" src="/api/media/agent-output/abc123.png" alt="whatsapp-qr"></p>\n',
+      );
+    });
+
+    it("flattens other absolute paths to alt text", () => {
+      const html = toSanitizedMarkdownHtml("![Sneaky](/etc/passwd)");
+      expect(html).toBe("<p>Sneaky</p>\n");
+    });
+
     it("uses fallback label for unlabeled images", () => {
       const html = toSanitizedMarkdownHtml("![](https://example.com/image.png)");
       expect(html).toBe("<p>image</p>\n");
