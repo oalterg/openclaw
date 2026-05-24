@@ -7,6 +7,7 @@ import { normalizeOptionalLowercaseString } from "../../shared/string-coerce.js"
 import { resolveContextWindowInfo } from "../context-window-guard.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../defaults.js";
 import { createAgentToolResultMiddlewareRunner } from "../harness/tool-result-middleware.js";
+import { withPermittedSessionWritesDuringPromptRelease } from "./run/attempt.session-lock.js";
 import { setCompactionSafeguardRuntime } from "../pi-hooks/compaction-safeguard-runtime.js";
 import compactionSafeguardExtension from "../pi-hooks/compaction-safeguard.js";
 import contextPruningExtension from "../pi-hooks/context-pruning.js";
@@ -62,16 +63,18 @@ function buildAgentToolResultMiddlewareFactory(): ExtensionFactory {
         details: event.details,
       } satisfies AgentToolResult<unknown>;
       const inputHadErrorStatus = hasErrorToolResultStatus(current);
-      const result = await runner.applyToolResultMiddleware({
-        threadId: event.threadId,
-        turnId: event.turnId,
-        toolCallId,
-        toolName: event.toolName,
-        args: recordFromUnknown(event.input),
-        cwd: ctx.cwd,
-        isError: event.isError,
-        result: current,
-      });
+      const result = await withPermittedSessionWritesDuringPromptRelease("mcp-tool-result", () =>
+        runner.applyToolResultMiddleware({
+          threadId: event.threadId,
+          turnId: event.turnId,
+          toolCallId,
+          toolName: event.toolName,
+          args: recordFromUnknown(event.input),
+          cwd: ctx.cwd,
+          isError: event.isError,
+          result: current,
+        }),
+      );
       const isError =
         event.isError === true || inputHadErrorStatus || hasErrorToolResultStatus(result);
       return {
