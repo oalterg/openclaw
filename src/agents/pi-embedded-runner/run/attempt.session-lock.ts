@@ -404,13 +404,21 @@ export function installPromptSubmissionLockRelease(params: {
 }
 
 /**
- * Allows trusted in-turn code paths introduced on the feat/agent-self-config-mcp branch
- * (the channels self-config tool and MCP tool result delivery for owner/self tools)
- * to safely mutate the session transcript during the prompt release window.
+ * Execute a function in a context that marks its session transcript writes as
+ * permitted during the prompt-release window.
  *
- * These writes are part of the *same logical agent turn* that released the prompt.
- * This makes dense self-config + custom MCP usage safe without weakening protection
- * against truly external or unexpected writers.
+ * After `releaseForPrompt()`, the session file fingerprint is monitored to
+ * detect external takeover. Certain trusted in-turn operations (self-config
+ * tool mutations, MCP owner/self tool result delivery for custom channels,
+ * etc.) legitimately need to append to the transcript as part of completing
+ * the current logical turn.
+ *
+ * Callers must wrap only the minimal trusted mutation. The reason string is
+ * for diagnostics and should be short and stable (e.g. "self-config",
+ * "mcp-tool-result").
+ *
+ * This is the narrow, explicit escape hatch. Normal tool execution and
+ * post-turn work must continue to go through `withSessionWriteLock`.
  */
 export async function withPermittedSessionWritesDuringPromptRelease<T>(
   reason: string,
