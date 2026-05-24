@@ -235,6 +235,37 @@ describe("createChannelsSelfConfigTool", () => {
         entries: { whatsapp: { enabled: true, config: { keep: 1 } } },
       });
     });
+
+    it("short-circuits with alreadyInstalled when the plugin is already loaded (no install call)", async () => {
+      getCatalogEntryMock.mockReturnValue({ name: "whatsapp" });
+      resolveIdMock.mockReturnValue("whatsapp");
+      listLoadedChannelPluginsMock.mockReturnValue([{ id: "whatsapp" }, { id: "telegram" }]);
+
+      const tool = createChannelsSelfConfigTool();
+      const result = await tool.execute("call-9", { action: "add", channel: "whatsapp" });
+
+      const payload = parseJsonContent(result) as {
+        ok: boolean;
+        channel: string;
+        pluginInstalled: boolean;
+        alreadyInstalled: boolean;
+        nextStep: string;
+      };
+
+      expect(payload.ok).toBe(true);
+      expect(payload.channel).toBe("whatsapp");
+      expect(payload.pluginInstalled).toBe(true);
+      expect(payload.alreadyInstalled).toBe(true);
+      expect(payload.nextStep).toContain("whatsapp_login");
+
+      // Critical: install must not be attempted when already loaded
+      expect(installPluginFromClawHubMock).not.toHaveBeenCalled();
+
+      // Still ensures skeleton (idempotent mutate)
+      const draft = await runMutate();
+      expect(draft.channels?.whatsapp).toEqual({ enabled: false });
+      expect(draft.plugins?.entries?.whatsapp).toEqual({ enabled: true });
+    });
   });
 
   describe("remove action", () => {

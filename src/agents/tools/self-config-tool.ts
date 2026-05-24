@@ -160,6 +160,46 @@ async function handleAdd(params: ChannelsToolParams): Promise<unknown> {
         `Use the 'catalog' action to see available channels, or install via CLI for arbitrary plugins.`,
     );
   }
+
+  // Idempotency guard: if the plugin is already loaded, we can skip the
+  // potentially expensive (and lock-sensitive) install step entirely.
+  // This prevents the "stale file lock from status check" / repeated install
+  // failure loops the agent previously encountered when driving channel setup.
+  const alreadyLoaded = listLoadedChannelPlugins().some((p) => p.id === channel);
+  if (alreadyLoaded) {
+    // Still ensure a minimal skeleton exists (harmless if already present).
+    await withPermittedSessionWritesDuringPromptRelease("self-config", () => mutateConfigFile({
+      base: "runtime",
+      afterWrite: { mode: "auto" },
+      mutate: (draft) => {
+        const next = draft as unknown as Record<string, unknown>;
+        const channels = (next.channels ?? {}) as Record<string, Record<string, unknown>>;
+        if (!channels[channel]) {
+          channels[channel] = { enabled: false };
+        }
+        next.channels = channels;
+        const plugins = (next.plugins ?? {}) as { entries?: Record<string, { enabled?: boolean }> };
+        const entries = plugins.entries ?? {};
+        if (!entries[channel]) {
+          entries[channel] = { enabled: true };
+        }
+        plugins.entries = entries;
+        next.plugins = plugins;
+      },
+    }));
+
+    return {
+      ok: true,
+      channel,
+      pluginInstalled: true,
+      alreadyInstalled: true,
+      nextStep:
+        `Plugin for "${channel}" is already installed and loaded. ` +
+        `Config skeleton ensured. Call the per-channel login tool (e.g. "${channel}_login") ` +
+        `on this or the next turn to start the link/QR flow.`,
+    };
+  }
+
   const installSpec = resolveOfficialExternalPluginInstall(catalogEntry);
   const clawhubSpec = installSpec?.clawhubSpec;
   if (!clawhubSpec) {
@@ -168,7 +208,7 @@ async function handleAdd(params: ChannelsToolParams): Promise<unknown> {
     );
   }
 
-  let installResult: { ok: true } | { ok: false; message: string };
+  let installResult: { ok: true } | { ok: false; message: string; detail?: string };
   try {
     const expectedPluginId = resolveOfficialExternalPluginId(catalogEntry);
     const result = await installPluginFromClawHub({
@@ -180,7 +220,12 @@ async function handleAdd(params: ChannelsToolParams): Promise<unknown> {
     } else {
       const raw = (result as { message?: unknown }).message;
       const message = typeof raw === "string" && raw.length > 0 ? raw : "install failed";
-      installResult = { ok: false, message };
+      const detail = (result as { detail?: unknown }).detail;
+      installResult = {
+        ok: false,
+        message,
+        ...(typeof detail === "string" && detail.length > 0 ? { detail } : {}),
+      };
     }
   } catch (err) {
     installResult = { ok: false, message: formatErrorMessage(err) };
@@ -191,13 +236,11 @@ async function handleAdd(params: ChannelsToolParams): Promise<unknown> {
       ok: false,
       stage: "install",
       message: installResult.message,
+      ...(installResult.detail ? { detail: installResult.detail } : {}),
     };
   }
 
-  // Write a minimal disabled skeleton. Each channel has its own schema; we
-  // write only what's universal across the messenger channels we target
-  // (whatsapp/telegram/signal/matrix/nextcloud-talk). Channel-specific fields
-  // get added by the per-channel login tool or by a follow-up set_policy call.
+  // Write a minimal disabled skeleton.
   await withPermittedSessionWritesDuringPromptRelease("self-config", () => mutateConfigFile({
     base: "runtime",
     afterWrite: { mode: "auto" },
@@ -216,12 +259,13 @@ async function handleAdd(params: ChannelsToolParams): Promise<unknown> {
       plugins.entries = entries;
       next.plugins = plugins;
     },
-  });
+  }));
 
   return {
     ok: true,
     channel,
     pluginInstalled: true,
+    alreadyInstalled: false,
     nextStep:
       `Plugin installed and config skeleton written. ` +
       `On the next agent turn, the per-channel login tool (e.g. "${channel}_login") will be available — call it to start the link flow. ` +
@@ -245,7 +289,7 @@ async function handleRemove(params: ChannelsToolParams): Promise<unknown> {
       }
       next.plugins = plugins;
     },
-  });
+  }));
   return { ok: true, channel, removed: true };
 }
 
@@ -286,7 +330,7 @@ async function handleSetPolicy(params: ChannelsToolParams): Promise<unknown> {
       channels[channel] = entry;
       next.channels = channels;
     },
-  });
+  }));
   return { ok: true, channel, policyUpdated: true };
 }
 

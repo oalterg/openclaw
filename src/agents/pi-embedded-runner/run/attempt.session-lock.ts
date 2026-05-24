@@ -3,6 +3,11 @@ import fs from "node:fs/promises";
 import { isSessionWriteLockTimeoutError } from "../../session-write-lock-error.js";
 import type { acquireSessionWriteLock } from "../../session-write-lock.js";
 
+// Module-level storage so withPermittedSessionWritesDuringPromptRelease can be
+// called safely from self-config tools, MCP owner tools, and tests without
+// requiring an active EmbeddedAttemptSessionLockController instance.
+const permittedWritesDuringPrompt = new AsyncLocalStorage<{ reason: string }>();
+
 type SessionLock = Awaited<ReturnType<typeof acquireSessionWriteLock>>;
 type AcquireSessionWriteLock = typeof acquireSessionWriteLock;
 
@@ -263,7 +268,6 @@ export async function createEmbeddedAttemptSessionLockController(params: {
 
   let heldLock: SessionLock | undefined = await acquireLock();
   const activeWriteLock = new AsyncLocalStorage<SessionLock>();
-  const permittedWritesDuringPrompt = new AsyncLocalStorage<{ reason: string }>();
   let fenceFingerprint: SessionFileFingerprint | undefined;
   let fenceActive = false;
   let takeoverDetected = false;
