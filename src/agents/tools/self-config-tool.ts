@@ -32,6 +32,7 @@ import {
 } from "../../plugins/official-external-plugin-catalog.js";
 import { stringEnum } from "../schema/typebox.js";
 import { jsonResult, ToolInputError, type AnyAgentTool } from "./common.js";
+import { withPermittedSessionWritesDuringPromptRelease } from "../pi-embedded-runner/run/attempt.session-lock.js";
 import { isOpenClawOwnerOnlyCoreToolName } from "./owner-only-tools.js";
 
 export const CHANNELS_TOOL_NAME = "channels";
@@ -197,7 +198,7 @@ async function handleAdd(params: ChannelsToolParams): Promise<unknown> {
   // write only what's universal across the messenger channels we target
   // (whatsapp/telegram/signal/matrix/nextcloud-talk). Channel-specific fields
   // get added by the per-channel login tool or by a follow-up set_policy call.
-  await mutateConfigFile({
+  await withPermittedSessionWritesDuringPromptRelease("self-config", () => mutateConfigFile({
     base: "runtime",
     afterWrite: { mode: "auto" },
     mutate: (draft) => {
@@ -230,7 +231,7 @@ async function handleAdd(params: ChannelsToolParams): Promise<unknown> {
 
 async function handleRemove(params: ChannelsToolParams): Promise<unknown> {
   const channel = readChannelId(params);
-  await mutateConfigFile({
+  await withPermittedSessionWritesDuringPromptRelease("self-config", () => mutateConfigFile({
     base: "runtime",
     afterWrite: { mode: "auto" },
     mutate: (draft) => {
@@ -260,7 +261,7 @@ async function handleSetPolicy(params: ChannelsToolParams): Promise<unknown> {
       "set_policy requires at least one of dmPolicy, allowFrom, groupPolicy, groupAllowFrom.",
     );
   }
-  await mutateConfigFile({
+  await withPermittedSessionWritesDuringPromptRelease("self-config", () => mutateConfigFile({
     base: "runtime",
     afterWrite: { mode: "auto" },
     mutate: (draft) => {

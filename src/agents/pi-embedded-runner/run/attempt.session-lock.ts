@@ -263,6 +263,7 @@ export async function createEmbeddedAttemptSessionLockController(params: {
 
   let heldLock: SessionLock | undefined = await acquireLock();
   const activeWriteLock = new AsyncLocalStorage<SessionLock>();
+  const permittedWritesDuringPrompt = new AsyncLocalStorage<{ reason: string }>();
   let fenceFingerprint: SessionFileFingerprint | undefined;
   let fenceActive = false;
   let takeoverDetected = false;
@@ -287,6 +288,13 @@ export async function createEmbeddedAttemptSessionLockController(params: {
     }
     const current = await readSessionFileFingerprint(params.lockOptions.sessionFile);
     if (!sameSessionFileFingerprint(fenceFingerprint, current)) {
+      const permitted = permittedWritesDuringPrompt.getStore();
+      if (permitted) {
+        // Trusted in-turn write (self-config, MCP tool result delivery, etc.).
+        // These are part of the same logical agent turn that released the prompt.
+        fenceFingerprint = current;
+        return;
+      }
       takeoverDetected = true;
       throw new EmbeddedAttemptSessionTakeoverError(params.lockOptions.sessionFile);
     }
@@ -393,4 +401,20 @@ export function installPromptSubmissionLockRelease(params: {
   };
   wrappedStreamFn["__openclawSessionLockPromptReleaseInstalled"] = true;
   agent.streamFn = wrappedStreamFn;
+}
+
+/**
+ * Allows trusted in-turn code paths introduced on the feat/agent-self-config-mcp branch
+ * (the channels self-config tool and MCP tool result delivery for owner/self tools)
+ * to safely mutate the session transcript during the prompt release window.
+ *
+ * These writes are part of the *same logical agent turn* that released the prompt.
+ * This makes dense self-config + custom MCP usage safe without weakening protection
+ * against truly external or unexpected writers.
+ */
+export async function withPermittedSessionWritesDuringPromptRelease<T>(
+  reason: string,
+  fn: () => Promise<T> | T
+): Promise<T> {
+  return await permittedWritesDuringPrompt.run({ reason }, async () => fn());
 }
