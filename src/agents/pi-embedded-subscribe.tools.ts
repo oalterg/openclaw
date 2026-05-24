@@ -314,6 +314,7 @@ const TRUSTED_BUNDLED_PLUGIN_MEDIA_TOOLS = new Set(
   pluginRegistrationContractRegistry.flatMap((entry) => entry.toolNames),
 );
 const HTTP_URL_RE = /^https?:\/\//i;
+const AGENT_TOOL_MEDIA_PATH_RE = /^\/api\/media\/agent-output\/[A-Za-z0-9._%-]{1,256}$/;
 
 function readToolResultDetails(result: unknown): Record<string, unknown> | undefined {
   if (!result || typeof result !== "object") {
@@ -386,13 +387,19 @@ export function filterToolResultMediaUrls(
       if (!trustedOwnedTtsLocalMedia) {
         const registeredName = toolName?.trim();
         if (!registeredName || !builtinToolNames.has(registeredName)) {
-          return mediaUrls.filter((url) => HTTP_URL_RE.test(url.trim()));
+          return mediaUrls.filter((url) => {
+            const trimmed = url.trim();
+            return HTTP_URL_RE.test(trimmed) || AGENT_TOOL_MEDIA_PATH_RE.test(trimmed);
+          });
         }
       }
     }
     return mediaUrls;
   }
-  return mediaUrls.filter((url) => HTTP_URL_RE.test(url.trim()));
+  return mediaUrls.filter((url) => {
+    const trimmed = url.trim();
+    return HTTP_URL_RE.test(trimmed) || AGENT_TOOL_MEDIA_PATH_RE.test(trimmed);
+  });
 }
 
 /**
