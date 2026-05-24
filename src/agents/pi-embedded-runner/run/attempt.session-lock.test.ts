@@ -161,7 +161,7 @@ describe("embedded attempt session lock lifecycle", () => {
     expect(events).toEqual(["acquire-1", "release", "events-drained", "acquire-2", "release"]);
   });
 
-  it("rejects post-prompt writes when another owner advances the session file", async () => {
+  it("accepts post-prompt session file changes when lock can be acquired (in-process writes)", async () => {
     const sessionFile = await createTempSessionFile();
     const release = vi.fn(async () => {});
     const acquireSessionWriteLock = vi.fn(async () => ({ release }));
@@ -171,17 +171,13 @@ describe("embedded attempt session lock lifecycle", () => {
     });
 
     await controller.releaseForPrompt();
-    await fs.appendFile(sessionFile, '{"type":"message","id":"takeover"}\n', "utf8");
+    // Simulate in-process writes from _handleAgentEvent → sessionManager.appendMessage.
+    // These are indistinguishable from external writes at the file level, but since
+    // we can acquire the lock, no external takeover is in progress.
+    await fs.appendFile(sessionFile, '{"type":"message","id":"framework-write"}\n', "utf8");
 
-    await expect(controller.withSessionWriteLock(() => "late-write")).rejects.toBeInstanceOf(
-      EmbeddedAttemptSessionTakeoverError,
-    );
-    expect(controller.hasSessionTakeover()).toBe(true);
-
-    const cleanupLock = await controller.acquireForCleanup();
-    await cleanupLock.release();
-
-    expect(release).toHaveBeenCalledTimes(2);
+    await expect(controller.withSessionWriteLock(() => "late-write")).resolves.toBe("late-write");
+    expect(controller.hasSessionTakeover()).toBe(false);
   });
 
   it("refreshes the prompt fence after an owned transcript mirror append", async () => {
