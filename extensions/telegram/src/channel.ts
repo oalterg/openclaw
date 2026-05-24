@@ -36,6 +36,7 @@ import {
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveTelegramAccount, type ResolvedTelegramAccount } from "./accounts.js";
+import { createTelegramLoginTool } from "./agent-tools-login.js";
 import { resolveTelegramAutoThreadId } from "./action-threading.js";
 import { lookupTelegramChatId } from "./api-fetch.js";
 import { telegramApprovalCapability } from "./approval-native.js";
@@ -651,6 +652,7 @@ export const telegramPlugin = createChatChannelPlugin({
       setupWizard: telegramSetupWizard,
       setup: telegramSetupAdapter,
     }),
+    agentTools: () => [createTelegramLoginTool()],
     allowlist: buildDmGroupAccountAllowlistAdapter({
       channelId: "telegram",
       resolveAccount: resolveTelegramAccount,
