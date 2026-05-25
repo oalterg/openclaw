@@ -103,6 +103,24 @@ export function resolveMcpApprovalsConfig(
  *    6. On deny / expired / error: return a synthetic denied result.
  *       The model never sees `action_id`.
  */
+// Per-server allow-always grants. When a user approves with allow-always,
+// all future tool calls from that MCP server skip the approval prompt.
+// In-memory for now — resets on gateway restart. A persistent store
+// (JSON file) can be added later if needed.
+const alwaysAllowedServers = new Set<string>();
+
+export function isServerAlwaysAllowed(serverName: string): boolean {
+  return alwaysAllowedServers.has(serverName);
+}
+
+export function grantServerAlwaysAllow(serverName: string): void {
+  alwaysAllowedServers.add(serverName);
+}
+
+export function revokeServerAlwaysAllow(serverName: string): void {
+  alwaysAllowedServers.delete(serverName);
+}
+
 export async function callMcpToolWithConsent(params: {
   runtime: SessionMcpRuntime;
   serverName: string;
@@ -132,6 +150,15 @@ export async function callMcpToolWithConsent(params: {
   const envelope = detectMcpConsentEnvelope(firstResult);
   if (!envelope) {
     return firstResult;
+  }
+  // If this server was previously granted allow-always, auto-confirm
+  // without showing the approval prompt.
+  if (isServerAlwaysAllowed(params.serverName)) {
+    const baseInput = isPlainObject(cleaned) ? cleaned : {};
+    return params.runtime.callTool(params.serverName, params.toolName, {
+      ...baseInput,
+      confirmation_token: envelope.actionId,
+    });
   }
   const requestApproval = params.requestApproval ?? defaultRequestMcpConsentApproval;
   let decision;
@@ -193,6 +220,9 @@ export async function callMcpToolWithConsent(params: {
       serverName: params.serverName,
       toolName: params.toolName,
     });
+  }
+  if (decision === "allow-always") {
+    grantServerAlwaysAllow(params.serverName);
   }
   // allow-once or allow-always: re-call with the confirmation token. The
   // server is responsible for one-shot/TTL enforcement of the action_id.
