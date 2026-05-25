@@ -145,6 +145,11 @@ export type McpConsentApprovalContext = {
   /** Optional — agent + session metadata for the channel runtime. */
   agentId?: string;
   sessionKey?: string;
+  /** Optional — the channel that originated the agent turn (e.g. "whatsapp", "telegram").
+   *  Used to route the approval prompt back to the same channel. */
+  channel?: string;
+  /** Optional — the target within the channel (e.g. phone number, chat ID). */
+  channelTarget?: string;
 };
 
 export type RequestMcpConsentApproval = (params: {
@@ -192,13 +197,18 @@ export const defaultRequestMcpConsentApproval: RequestMcpConsentApproval = async
   const rawDescription = `${ctx.serverName}.${safeToolName} — ${envelope.summary}`;
   const description =
     rawDescription.length > 256 ? rawDescription.slice(0, 253) + "…" : rawDescription;
-  // Derive turn-source fields from the session key so the `/approve`
-  // command handler can match the pending approval back to the originating
-  // channel. Session key format: agent:<agentId>:<channel>:<target>[:...]
-  const parsedSession = parseAgentSessionKey(ctx.sessionKey);
-  const restParts = parsedSession?.rest.split(":") ?? [];
-  const turnSourceChannel = restParts[0] || undefined;
-  const turnSourceTo = restParts.slice(1).join(":") || undefined;
+  // Derive turn-source fields so the `/approve` command handler can match
+  // the pending approval back to the originating channel. Prefer the
+  // explicit channel/target from the context (set by the embedded runner);
+  // fall back to parsing the session key for backwards compat.
+  let turnSourceChannel = ctx.channel;
+  let turnSourceTo = ctx.channelTarget;
+  if (!turnSourceChannel) {
+    const parsedSession = parseAgentSessionKey(ctx.sessionKey);
+    const restParts = parsedSession?.rest.split(":") ?? [];
+    turnSourceChannel = restParts[0] || undefined;
+    turnSourceTo = turnSourceTo || restParts.slice(1).join(":") || undefined;
+  }
 
   let requestResult: { id?: string; decision?: string | null } | undefined;
   try {

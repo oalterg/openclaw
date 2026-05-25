@@ -1659,6 +1659,8 @@ export async function runEmbeddedAttempt(
           // a permanent deny gate.
           agentId: params.agentId,
           sessionKey: params.sessionKey,
+          channel: params.messageChannel ?? params.messageProvider,
+          channelTarget: params.messageTo,
           consentEnabled: mcpApprovals.consentEnabled,
           consentDefaultTimeoutMs: mcpApprovals.consentDefaultTimeoutMs,
         })
