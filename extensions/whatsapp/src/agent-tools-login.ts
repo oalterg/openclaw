@@ -33,13 +33,7 @@ export function createWhatsAppLoginTool(): ChannelAgentTool {
     }),
     execute: async (_toolCallId, args) => {
       const renderQrReply = (params: { message: string; qrUrl: string; connected?: boolean }) => {
-        const text = [
-          params.message,
-          "",
-          "Open WhatsApp → Linked Devices and scan:",
-          "",
-          `![whatsapp-qr](${params.qrUrl})`,
-        ].join("\n");
+        const text = `${params.message}\nMEDIA: ${params.qrUrl}`;
         return {
           content: [{ type: "text" as const, text }],
           details: {

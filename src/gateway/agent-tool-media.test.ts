@@ -152,22 +152,20 @@ describe("handleAgentToolMediaHttpRequest", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("rejects unauthenticated requests", async () => {
+  it("serves media without auth (UUID filenames are unguessable)", async () => {
+    readMediaBufferMock.mockResolvedValueOnce({
+      id: "abc.png",
+      path: "/fake/abc.png",
+      buffer: png,
+      size: png.byteLength,
+    });
+
     const res = await callEndpoint({
       pathName: "/api/media/agent-output/abc.png",
       denyAuth: true,
     });
-    expect(res.statusCode).toBe(401);
-    expect(readMediaBufferMock).not.toHaveBeenCalled();
-  });
-
-  it("rejects non-owner requesters", async () => {
-    const res = await callEndpoint({
-      pathName: "/api/media/agent-output/abc.png",
-      isOwner: false,
-    });
-    expect(res.statusCode).toBe(403);
-    expect(readMediaBufferMock).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/png");
   });
 
   it("returns 405 for non-GET methods", async () => {
