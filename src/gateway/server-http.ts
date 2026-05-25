@@ -115,6 +115,12 @@ function getAgentToolMediaModule() {
   return agentToolMediaModulePromise;
 }
 
+let channelLoginModulePromise: Promise<typeof import("./channel-login-http.js")> | undefined;
+function getChannelLoginModule() {
+  channelLoginModulePromise ??= import("./channel-login-http.js");
+  return channelLoginModulePromise;
+}
+
 function getModelsHttpModule() {
   modelsHttpModulePromise ??= import("./models-http.js");
   return modelsHttpModulePromise;
@@ -763,6 +769,19 @@ export function createGatewayHttpServer(opts: {
           name: "agent-tool-media",
           run: async () =>
             (await getAgentToolMediaModule()).handleAgentToolMediaHttpRequest(req, res, {
+              auth: resolvedAuth,
+              trustedProxies,
+              allowRealIpFallback,
+              rateLimiter,
+            }),
+        });
+      }
+
+      if (scopedRequestPath.startsWith("/api/channels/login/")) {
+        requestStages.push({
+          name: "channel-login",
+          run: async () =>
+            (await getChannelLoginModule()).handleChannelLoginHttpRequest(req, res, {
               auth: resolvedAuth,
               trustedProxies,
               allowRealIpFallback,
