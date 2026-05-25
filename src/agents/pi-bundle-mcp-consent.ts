@@ -1,5 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { logWarn } from "../logger.js";
+import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
 import { isPlainObject } from "../utils.js";
 import { callGatewayTool } from "./tools/gateway.js";
 
@@ -191,6 +192,14 @@ export const defaultRequestMcpConsentApproval: RequestMcpConsentApproval = async
   const rawDescription = `${ctx.serverName}.${safeToolName} — ${envelope.summary}`;
   const description =
     rawDescription.length > 256 ? rawDescription.slice(0, 253) + "…" : rawDescription;
+  // Derive turn-source fields from the session key so the `/approve`
+  // command handler can match the pending approval back to the originating
+  // channel. Session key format: agent:<agentId>:<channel>:<target>[:...]
+  const parsedSession = parseAgentSessionKey(ctx.sessionKey);
+  const restParts = parsedSession?.rest.split(":") ?? [];
+  const turnSourceChannel = restParts[0] || undefined;
+  const turnSourceTo = restParts.slice(1).join(":") || undefined;
+
   let requestResult: { id?: string; decision?: string | null } | undefined;
   try {
     requestResult = await callGatewayTool<{ id?: string; decision?: string | null }>(
@@ -205,7 +214,9 @@ export const defaultRequestMcpConsentApproval: RequestMcpConsentApproval = async
         toolCallId: ctx.toolCallId,
         agentId: ctx.agentId,
         sessionKey: ctx.sessionKey,
-        allowedDecisions: ["allow-once", "deny"],
+        turnSourceChannel,
+        turnSourceTo,
+        allowedDecisions: ["allow-once", "allow-always", "deny"],
         timeoutMs,
         twoPhase: true,
       },
