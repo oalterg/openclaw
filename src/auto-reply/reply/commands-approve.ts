@@ -232,6 +232,7 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
   };
   let approvalId: string;
   if (parsed.idKind === "implicit") {
+    const approvalListScopes = ["operator.admin"];
     let pendingPlugin: PendingApprovalRecord[] = [];
     try {
       const r = await callGateway<PendingApprovalRecord[]>({
@@ -240,6 +241,7 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
         clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
         clientDisplayName: "Chat approval",
         mode: GATEWAY_CLIENT_MODES.BACKEND,
+        scopes: approvalListScopes,
       });
       pendingPlugin = Array.isArray(r) ? r : [];
     } catch {
@@ -253,6 +255,7 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
         clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
         clientDisplayName: "Chat approval",
         mode: GATEWAY_CLIENT_MODES.BACKEND,
+        scopes: approvalListScopes,
       });
       pendingExec = Array.isArray(r) ? r : [];
     } catch {
