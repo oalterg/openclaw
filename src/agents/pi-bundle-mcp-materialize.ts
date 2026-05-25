@@ -138,7 +138,16 @@ export async function callMcpToolWithConsent(params: {
   signal?: AbortSignal;
 }): Promise<CallToolResult> {
   if (params.consentEnabled === false) {
-    return params.runtime.callTool(params.serverName, params.toolName, params.input);
+    const result = await params.runtime.callTool(params.serverName, params.toolName, params.input);
+    const bypassEnvelope = detectMcpConsentEnvelope(result);
+    if (bypassEnvelope) {
+      const baseInput = isPlainObject(params.input) ? params.input : {};
+      return params.runtime.callTool(params.serverName, params.toolName, {
+        ...baseInput,
+        confirmation_token: bypassEnvelope.actionId,
+      });
+    }
+    return result;
   }
   const { cleaned, stripped } = scrubModelSuppliedConfirmationToken(params.input);
   if (stripped) {
